@@ -1,0 +1,19 @@
+:root {
+  --gato-red: #A81A1A;
+  --gato-cream: #f2efe9;
+  --gato-black: #111111;
+  --gato-gold:#ecd68b;
+  --font-ui: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  background-color: var(--gato-cream);
+  color: var(--gato-black);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
