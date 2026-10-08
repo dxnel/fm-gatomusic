@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { supabase } from '../supabase'
-import { PLATFORMS, PRESAVE, LINK_COLUMNS, platformById, platformFromUrl, normalizeUrl, searchUrl } from '../lib/platforms'
+import { PLATFORMS, PRESAVE, SOCIALS, LINK_COLUMNS, platformById, platformFromUrl, normalizeUrl, searchUrl, followInfo } from '../lib/platforms'
 import { toYMD, zurichMidnight, isLive, relativeTo, formatShort } from '../lib/releaseDate'
 import { detectInput, runScan, cleanIsrc } from '../lib/scan'
 import { loadPalette } from '../lib/palette'
@@ -226,6 +226,9 @@ const dateHint = computed(() => {
     : `Goes live at 00:00 Swiss time (${local} your time).`
 })
 
+/* ---- follow button preview ---- */
+const followPreview = computed(() => followInfo(current.value.artist_url))
+
 /* ---- links ---- */
 const searchQuery = computed(() => `${current.value.artist} ${current.value.title}`.trim())
 
@@ -405,8 +408,17 @@ const loadPlatformClicks = async (id) => {
 }
 
 const clickLabel = (key) => {
-  if (key.startsWith('presave-')) return `${platformById(key.slice(8))?.label || key.slice(8)} (pre-save)`
-  return platformById(key)?.label || (key === 'share' ? 'Share button' : key)
+  if (key.startsWith('presave-')) {
+    const id = key.slice(8)
+    return `${PRESAVE.find((p) => p.id === id)?.label || id} (pre-save)`
+  }
+  if (key.startsWith('social-')) {
+    const id = key.slice(7)
+    return `${SOCIALS.find((p) => p.id === id)?.label || id} (profile)`
+  }
+  if (key === 'follow') return 'Follow button'
+  if (key === 'share') return 'Share button'
+  return platformById(key)?.label || key
 }
 
 /* ---- save / delete ---- */
@@ -449,7 +461,7 @@ const saveRelease = async () => {
   } catch (err) {
     console.error(err)
     if (err.message === 'slug-taken') showToast('That slug is already used by another release.', 'error')
-    else if (err.code === 'PGRST204' || /column/i.test(err.message || '')) showToast('Database is missing the new columns. Run supabase/migration.sql first.', 'error')
+    else if (err.code === 'PGRST204' || /column/i.test(err.message || '')) showToast('Database is missing columns. Run supabase/migration.sql AND migration-2.sql first.', 'error')
     else showToast('Could not save.', 'error')
   }
   isSaving.value = false
@@ -522,6 +534,15 @@ onUnmounted(() => {
   <div class="admin g-page" :class="`theme-${adminTheme}`" :style="{ '--page-bg': adminBg, '--accent': '#bdbdbd' }">
     <div class="g-stage" aria-hidden="true"></div>
 
+    <!-- icon sprite: real SVGs instead of text symbols (which turn into emoji on iOS) -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7" /><path d="M8 7h9v9" /></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.6-3.6" /></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14" /><path d="M5 12h14" /></symbol>
+    </svg>
+
     <Transition name="toast">
       <div v-if="toast.show" :class="['g-toast', toast.type]" role="status">{{ toast.message }}</div>
     </Transition>
@@ -575,15 +596,15 @@ onUnmounted(() => {
       </section>
 
       <header class="toolbar">
-        <div class="toolbar-left">
-          <input v-model="search" class="g-input search" type="search" placeholder="Search title, artist, slug…" />
-          <div class="chips" role="tablist">
-            <button v-for="f in ['all', 'upcoming', 'live']" :key="f" class="chip" :class="{ active: filter === f }" @click="filter = f">
-              {{ f }}<span class="chip-n">{{ counts[f] }}</span>
-            </button>
-          </div>
+        <input v-model="search" class="g-input search" type="search" placeholder="Search title, artist, slug…" />
+        <button class="g-btn g-btn--primary new-btn" aria-label="New release" @click="openEditor(null)">
+          <svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg><span>New release</span>
+        </button>
+        <div class="chips" role="tablist">
+          <button v-for="f in ['all', 'upcoming', 'live']" :key="f" class="chip" :class="{ active: filter === f }" @click="filter = f">
+            {{ f }}<span class="chip-n">{{ counts[f] }}</span>
+          </button>
         </div>
-        <button class="g-btn g-btn--primary" @click="openEditor(null)">+ New release</button>
       </header>
 
       <div v-if="filtered.length" class="grid">
@@ -592,14 +613,21 @@ onUnmounted(() => {
             <img v-if="r.cover_url" :src="r.cover_url" :alt="r.title" loading="lazy" />
             <div v-else class="cover-ph"><span class="fm-logo"><span class="fm-prefix">fm</span>GATO</span></div>
             <span class="badge" :class="statusOf(r)">{{ badgeText(r) }}</span>
-            <div class="rel-actions">
-              <button class="icon-btn" title="Copy link" @click.stop="copy(pageUrl(r.id))">⧉</button>
-              <a class="icon-btn" title="Open page" :href="`/${r.id}`" target="_blank" rel="noopener" @click.stop>↗</a>
-            </div>
           </div>
-          <h3 class="title-serif rel-title">{{ r.title }}</h3>
-          <p class="rel-meta">{{ r.artist }} · {{ formatShort(r.release_date) }}</p>
-          <p v-if="stats[r.id]" class="rel-stats">{{ stats[r.id].views }} views · {{ stats[r.id].clicks }} clicks</p>
+          <div class="rel-body">
+            <h3 class="title-serif rel-title">{{ r.title }}</h3>
+            <p class="rel-meta">{{ r.artist }} · {{ formatShort(r.release_date) }}</p>
+            <p class="status-line" :class="statusOf(r)">{{ badgeText(r) }}</p>
+            <p v-if="stats[r.id]" class="rel-stats">{{ stats[r.id].views }} views · {{ stats[r.id].clicks }} clicks</p>
+          </div>
+          <div class="rel-actions">
+            <button class="icon-btn" title="Copy link" aria-label="Copy link" @click.stop="copy(pageUrl(r.id))">
+              <svg class="ico" aria-hidden="true"><use href="#i-link" /></svg>
+            </button>
+            <a class="icon-btn" title="Open page" aria-label="Open page" :href="`/${r.id}`" target="_blank" rel="noopener" @click.stop>
+              <svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg>
+            </a>
+          </div>
         </article>
       </div>
       <p v-else class="empty">{{ releases.length ? 'No release matches.' : 'No releases yet. Create your first one.' }}</p>
@@ -616,9 +644,11 @@ onUnmounted(() => {
         <header class="drawer-head">
           <div>
             <h2 class="title-serif drawer-title">{{ isEditing ? 'Edit' : 'Create' }}</h2>
-            <p v-if="isDirty" class="dirty">● Unsaved changes</p>
+            <p v-if="isDirty" class="dirty"><span class="dirty-dot"></span>Unsaved changes</p>
           </div>
-          <button class="g-btn g-btn--sm g-btn--ghost" @click="closeEditor()">✕ Close</button>
+          <button class="icon-btn close-btn" title="Close" aria-label="Close" @click="closeEditor()">
+            <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+          </button>
         </header>
 
         <div class="drawer-body">
@@ -641,7 +671,7 @@ onUnmounted(() => {
                 <span class="muted">{{ i.source }}<template v-if="i.confidence === 'fuzzy'"> · verify</template><template v-if="!i.applied"> · kept your value</template></span>
               </div>
               <p v-if="scanReport.missing.length" class="hint">
-                Not found: {{ scanReport.missing.join(', ') }}. Use the ⌕ button next to a field to search it manually.
+                Not found: {{ scanReport.missing.join(', ') }}. Use the search button next to a field to search it manually.
               </p>
             </div>
           </section>
@@ -657,8 +687,12 @@ onUnmounted(() => {
                 <label class="lbl">URL slug *</label>
                 <div class="row">
                   <input v-model="current.id" class="g-input" :disabled="isEditing" autocapitalize="off" spellcheck="false" @input="slugTouched = true" />
-                  <button v-if="isEditing" class="g-btn g-btn--sm" title="Copy link" @click="copy(pageUrl(current.id))">Copy</button>
-                  <a v-if="isEditing" class="g-btn g-btn--sm" :href="`/${current.id}`" target="_blank" rel="noopener">Open</a>
+                  <button v-if="isEditing" class="icon-btn" title="Copy link" aria-label="Copy link" @click="copy(pageUrl(current.id))">
+                    <svg class="ico" aria-hidden="true"><use href="#i-link" /></svg>
+                  </button>
+                  <a v-if="isEditing" class="icon-btn" title="Open page" aria-label="Open page" :href="`/${current.id}`" target="_blank" rel="noopener">
+                    <svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg>
+                  </a>
                 </div>
               </div>
               <div class="field">
@@ -711,14 +745,18 @@ onUnmounted(() => {
 
           <!-- Pre-save -->
           <section class="block">
-            <label class="lbl">Custom pre-save links <span class="muted">(optional)</span></label>
-            <div class="grid-2">
-              <div v-for="p in PRESAVE" :key="p.id" class="field">
-                <label class="sub">{{ p.label }}</label>
-                <input v-model="current[p.column]" class="g-input" placeholder="https://" inputmode="url" autocapitalize="off" spellcheck="false" />
+            <label class="lbl">Pre-save / pre-order links <span class="muted">(shown before release day)</span></label>
+            <p class="hint">Paste your external link here (ffm.to, feature.fm, iTunes pre-order…). The button only opens it.</p>
+            <div v-for="p in PRESAVE" :key="p.id" class="link-row">
+              <span class="link-ico" :style="{ color: p.brand }">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" /></svg>
+              </span>
+              <div class="link-field">
+                <label class="sub">{{ p.cta }}</label>
+                <input v-model="current[p.column]" class="g-input" placeholder="https://ffm.to/…" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" />
               </div>
+              <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
             </div>
-            <p class="hint">Without a Spotify link here, visitors use the built-in Spotify pre-save.</p>
           </section>
 
           <!-- Streaming links -->
@@ -745,15 +783,33 @@ onUnmounted(() => {
                 </label>
                 <input v-model="current[p.column]" class="g-input" placeholder="https://" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" @input="reviewSet.delete(p.column)" />
               </div>
-              <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" @click="reviewSet.delete(p.column)">↗</a>
-              <a v-else class="icon-btn" :class="{ disabled: !searchQuery }" :title="`Search on ${p.label}`" :href="searchUrl(p.id, searchQuery)" target="_blank" rel="noopener">⌕</a>
+              <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link" @click="reviewSet.delete(p.column)"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
+              <a v-else class="icon-btn" :class="{ disabled: !searchQuery }" :title="`Search on ${p.label}`" :href="searchUrl(p.id, searchQuery)" target="_blank" rel="noopener" :aria-label="`Search on ${p.label}`"><svg class="ico" aria-hidden="true"><use href="#i-search" /></svg></a>
             </div>
           </section>
 
-          <!-- Artist -->
+          <!-- Artist / follow -->
           <section class="block">
-            <label class="lbl">Artist profile <span class="muted">(shown as "Listen to …")</span></label>
+            <label class="lbl">Follow button <span class="muted">(always shown, above the other buttons)</span></label>
             <input v-model="current.artist_url" class="g-input" placeholder="https://open.spotify.com/artist/…" inputmode="url" autocapitalize="off" spellcheck="false" />
+            <p v-if="followPreview" class="hint">Button reads: <strong>{{ followPreview.label }}</strong></p>
+            <p v-else class="hint">No link = no Follow button.</p>
+            <p v-if="followPreview?.looksWrong" class="hint warn">This doesn't look like an artist profile link (no /artist/ in it).</p>
+          </section>
+
+          <!-- Socials -->
+          <section class="block">
+            <label class="lbl">Social profiles <span class="muted">(shown at the bottom before release day)</span></label>
+            <div v-for="p in SOCIALS" :key="p.id" class="link-row">
+              <span class="link-ico" :style="{ color: p.mono ? 'var(--fg)' : p.brand }">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" /></svg>
+              </span>
+              <div class="link-field">
+                <label class="sub">{{ p.label }}</label>
+                <input v-model="current[p.column]" class="g-input" placeholder="https://" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" />
+              </div>
+              <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
+            </div>
           </section>
 
           <!-- Stats -->
@@ -796,7 +852,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.admin { --pad: 24px; }
+.admin { --pad: 24px; --bar-clear: 72px; /* room for Safari's floating bottom bar on phones */ }
+.ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .muted { color: var(--fg-faint); font-weight: 500; }
 .pulse { animation: g-pulse 1.5s infinite alternate; }
 
@@ -812,6 +869,7 @@ onUnmounted(() => {
 
 /* ---------- dashboard ---------- */
 .wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 20px) var(--pad) calc(env(safe-area-inset-bottom, 0px) + 32px); }
+@media (hover: none) { .wrap { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bar-clear)); } }
 .navbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 22px; border-bottom: 1px solid var(--line); margin-bottom: 26px; }
 .nav-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .logo-small { width: 32px; height: auto; }
@@ -825,32 +883,40 @@ onUnmounted(() => {
 .tile-l { font-size: 0.6rem; letter-spacing: 2px; text-transform: uppercase; font-weight: 800; color: var(--fg-faint); }
 .tile-s { margin-top: 4px; font-size: 0.68rem; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 26px; }
-.toolbar-left { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; flex: 1; min-width: 0; }
-.search { max-width: 280px; }
+.toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 26px; }
+.search { order: 1; flex: 0 1 300px; min-width: 0; }
+.chips { order: 2; }
+.new-btn { order: 3; margin-left: auto; }
 .chips { display: flex; gap: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 100px; border: 1px solid var(--line); background: transparent; color: var(--fg-dim); font-family: var(--font-ui); font-size: 0.62rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; transition: all 0.2s; }
 .chip.active { background: var(--primary-bg); color: var(--primary-fg); border-color: transparent; }
 .chip-n { opacity: 0.6; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 34px 22px; }
-.rel { cursor: pointer; outline: none; }
-.rel-cover { position: relative; aspect-ratio: 1 / 1; border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: 0 14px 30px -18px rgba(0, 0, 0, 0.5); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); margin-bottom: 12px; }
+/* card = 2-row grid: cover (+ overlaid action buttons) on top, text below */
+.rel { display: grid; grid-template-columns: minmax(0, 1fr); cursor: pointer; outline: none; }
+.rel-cover { grid-area: 1 / 1; position: relative; aspect-ratio: 1 / 1; border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: 0 14px 30px -18px rgba(0, 0, 0, 0.5); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); margin-bottom: 12px; }
 .rel-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rel-body { grid-area: 2 / 1; min-width: 0; }
+.status-line { display: none; }
 .cover-ph { width: 100%; height: 100%; display: grid; place-items: center; font-size: 1.6rem; color: var(--fg-faint); }
 .rel:focus-visible .rel-cover { outline: 2px solid var(--fg-dim); outline-offset: 3px; }
-@media (hover: hover) and (pointer: fine) { .rel:hover .rel-cover { transform: translateY(-3px); } .rel:hover .rel-actions { opacity: 1; } }
-
+.rel:focus-within .rel-actions { opacity: 1; }
+/* desktop: lift the cover and reveal the action buttons on hover */
+@media (hover: hover) and (pointer: fine) {
+  .rel:hover .rel-cover { transform: translateY(-3px); }
+  .rel:hover .rel-actions { opacity: 1; }
+}
 .badge { position: absolute; top: 10px; left: 10px; padding: 5px 10px; border-radius: 100px; font-size: 0.52rem; font-weight: 800; letter-spacing: 1.2px; background: rgba(0, 0, 0, 0.55); color: #fff; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .badge.live { background: rgba(26, 127, 69, 0.85); }
-.rel-actions { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; opacity: 0; transition: opacity 0.2s; }
+.rel-actions { grid-area: 1 / 1; align-self: end; justify-self: end; margin: 0 8px 20px 0; position: relative; z-index: 2; display: flex; gap: 6px; opacity: 0; transition: opacity 0.2s; }
 @media (hover: none) { .rel-actions { opacity: 1; } }
 .rel-title { font-size: 1.55rem; line-height: 1.1; color: var(--fg); margin: 0 0 4px; }
 .rel-meta { margin: 0; font-size: 0.66rem; letter-spacing: 1px; text-transform: uppercase; color: var(--fg-dim); }
 .rel-stats { margin: 4px 0 0; font-size: 0.62rem; letter-spacing: 0.5px; color: var(--fg-faint); }
 .empty { text-align: center; padding: 60px 0; color: var(--fg-faint); font-size: 0.8rem; letter-spacing: 1px; }
 
-.icon-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; font-size: 0.95rem; text-decoration: none; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--fg); transition: background 0.2s, transform 0.2s; flex-shrink: 0; }
+.icon-btn { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; text-decoration: none; -webkit-tap-highlight-color: transparent; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--fg); transition: background 0.2s, transform 0.2s; flex-shrink: 0; }
 .icon-btn:active { transform: scale(0.92); }
 .icon-btn.disabled { opacity: 0.4; pointer-events: none; }
 @media (hover: hover) and (pointer: fine) { .icon-btn:hover { background: var(--surface-hover); } }
@@ -866,7 +932,8 @@ onUnmounted(() => {
 @keyframes slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 .drawer-head { display: flex; justify-content: space-between; align-items: center; padding: calc(env(safe-area-inset-top, 0px) + 22px) 28px 18px; border-bottom: 1px solid var(--line); }
 .drawer-title { font-size: 2.2rem; line-height: 1; color: var(--fg); }
-.dirty { margin: 4px 0 0; font-size: 0.62rem; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 800; color: var(--warn); }
+.dirty { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font-size: 0.62rem; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 800; color: var(--warn); }
+.dirty-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .drawer-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 22px 28px 30px; display: flex; flex-direction: column; gap: 26px; }
 .drawer-foot { padding: 16px 28px calc(env(safe-area-inset-bottom, 0px) + 16px); border-top: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 10px; }
 .foot-main { display: flex; align-items: center; gap: 12px; }
@@ -881,6 +948,8 @@ onUnmounted(() => {
 .field > .lbl { margin-bottom: 6px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .row { display: flex; gap: 8px; align-items: center; }
+.row > .g-input { flex: 1; min-width: 0; }
+.g-input[type="date"] { min-height: 46px; }
 .hint { margin: 0; font-size: 0.68rem; line-height: 1.5; color: var(--fg-faint); }
 .hint.warn { color: var(--warn); }
 .check-row { display: flex; align-items: center; gap: 10px; font-size: 0.74rem; color: var(--fg-dim); cursor: pointer; }
@@ -934,15 +1003,72 @@ onUnmounted(() => {
 .toast-enter-active, .toast-leave-active { transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translate(-50%, 16px); }
 
+/* ---------- tablet ---------- */
 @media (max-width: 768px) {
   .admin { --pad: 16px; }
   .nav-tag { display: none; }
-  .search { max-width: none; flex: 1 1 100%; }
+  .nav-title { font-size: 1.7rem; }
   .grid { grid-template-columns: repeat(2, 1fr); gap: 26px 14px; }
   .rel-title { font-size: 1.3rem; }
   .drawer { max-width: 100%; border-radius: 0; border-left: none; }
   .drawer-head, .drawer-body, .drawer-foot { padding-left: 18px; padding-right: 18px; }
   .grid-2 { grid-template-columns: 1fr; }
-  .art { flex-direction: column; align-items: flex-start; }
+}
+
+/* ---------- phone ---------- */
+@media (max-width: 640px) {
+  .navbar { padding-bottom: 16px; margin-bottom: 18px; }
+  .logo-small { width: 28px; }
+
+  /* stats: 3 + 2 compact tiles instead of an orphan column */
+  .tiles { grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 20px; }
+  .tile { grid-column: span 2; padding: 12px 14px; border-radius: 16px; }
+  .tile:nth-child(n + 4) { grid-column: span 3; }
+  .tile-n { font-size: 1.8rem; }
+  .tile-l { font-size: 0.54rem; letter-spacing: 1.5px; }
+  .tile-s { display: none; }
+
+  /* toolbar: search + "+" on one row, filters scroll sideways below */
+  .toolbar { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 18px; }
+  .search { flex: none; order: 0; }
+  .new-btn { order: 0; margin: 0; width: 48px; height: 48px; padding: 0; border-radius: 50%; }
+  .new-btn span { display: none; }
+  .new-btn .ico { width: 20px; height: 20px; stroke-width: 2.4; }
+  .chips { order: 0; grid-column: 1 / -1; overflow-x: auto; margin: 0 calc(var(--pad) * -1); padding: 0 var(--pad); scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex-shrink: 0; padding: 11px 16px; }
+
+  /* releases: one tidy row each */
+  .grid { grid-template-columns: 1fr; gap: 10px; }
+  .rel { grid-template-columns: 84px minmax(0, 1fr) auto; align-items: center; column-gap: 14px; padding: 10px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); }
+  .rel:active { background: var(--surface-hover); }
+  .rel-cover { grid-area: auto; width: 84px; margin: 0; border-radius: 14px; }
+  .rel-body { grid-area: auto; }
+  .rel-actions { grid-area: auto; align-self: center; justify-self: auto; margin: 0; flex-direction: column; opacity: 1; gap: 8px; }
+  .badge { display: none; }
+  .rel-title { font-size: 1.45rem; margin: 0 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rel-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.6px; }
+  .status-line { display: block; margin: 5px 0 0; font-size: 0.56rem; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: var(--warn); }
+  .status-line.live { color: var(--ok); }
+  .footer { margin-top: 36px; }
+
+  /* editor: full-screen sheet, comfortable touch targets */
+  .icon-btn { width: 40px; height: 40px; }
+  .drawer-head { padding-top: calc(env(safe-area-inset-top, 0px) + 14px); padding-bottom: 12px; }
+  .drawer-title { font-size: 1.9rem; }
+  .drawer-body { padding-top: 18px; gap: 22px; padding-bottom: 24px; }
+  .drawer-foot { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); }
+  .fill { padding: 14px; }
+  .art-preview { width: 72px; height: 72px; }
+  .link-row { gap: 8px; }
+  .link-ico { width: 32px; height: 32px; }
+  .dialog { padding: 22px; }
+  .dialog-actions .g-btn { flex: 1; }
+}
+
+@media (max-width: 640px) and (hover: none) {
+  /* Safari's floating bottom bar overlaps fixed content: keep Save above it */
+  .drawer-foot { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bar-clear) - 24px); }
+  .toast-wrap, .g-toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bar-clear)); }
 }
 </style>

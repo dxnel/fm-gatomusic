@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Release from './views/Release.vue'
-import Callback from './views/Callback.vue'
 
 const routes = [
   // "/" used to match nothing (blank page): send people to the label site instead.
@@ -15,7 +14,6 @@ const routes = [
   },
   // Admin is rarely opened: load it on demand to keep the public pages light.
   { path: '/admin', name: 'Admin', component: () => import('./views/Admin.vue') },
-  { path: '/callback', name: 'Callback', component: Callback },
   // Must stay last: it matches any single segment.
   { path: '/:id', name: 'Release', component: Release }
 ]

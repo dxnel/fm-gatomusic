@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { supabase } from '../supabase'
-import { PLATFORMS, PRESAVE, platformById } from '../lib/platforms'
+import { PLATFORMS, PRESAVE, SOCIALS, followInfo } from '../lib/platforms'
 import { releaseTime, formatLong } from '../lib/releaseDate'
 import { trackView, trackClick } from '../lib/track'
 import { usePageTheme } from '../composables/usePageTheme'
@@ -47,17 +47,6 @@ const tick = () => {
   }
 }
 
-/* ---------------- Spotify pre-save ---------------- */
-const handleSpotifyPresave = async () => {
-  // give the analytics call a moment to leave before we navigate away
-  await Promise.race([trackClick(release.value.id, 'presave-spotify'), new Promise((r) => setTimeout(r, 300))])
-  const clientId = '191f385be1644f2595ca8aebbd2da003'
-  const redirectUri = encodeURIComponent('https://fm.gatomusic.ch/callback')
-  const scopes = encodeURIComponent('user-library-modify')
-  const state = release.value.id
-  window.location.href = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&scope=${scopes}&state=${state}`
-}
-
 /* ---------------- Buttons ---------------- */
 const platforms = computed(() => {
   const l = links.value || {}
@@ -67,14 +56,23 @@ const platforms = computed(() => {
       icon: p.icon, brand: p.brand, fg: p.fg, mono: p.mono
     }))
   }
-  return PRESAVE.map((p) => {
-    const base = platformById(p.id)
-    return {
-      key: `pre-${p.id}`, track: `presave-${p.id}`, url: l[p.column], label: p.cta,
-      icon: base.icon, brand: base.brand, fg: base.fg, mono: base.mono,
-      fallback: p.id === 'spotify' ? handleSpotifyPresave : null
-    }
-  }).filter((p) => p.url || p.fallback)
+  // Before release: only the external pre-save / pre-order links pasted in the admin
+  return PRESAVE.filter((p) => l[p.column]).map((p) => ({
+    key: `pre-${p.id}`, track: `presave-${p.id}`, url: l[p.column], label: p.cta,
+    icon: p.icon, brand: p.brand, fg: p.fg, mono: p.mono
+  }))
+})
+
+// Always-visible Follow button, built from the artist link set in the admin
+const follow = computed(() => followInfo(links.value?.artist_url))
+
+// Instagram / TikTok profile buttons, shown at the bottom before release day
+const socials = computed(() => {
+  const l = links.value || {}
+  return SOCIALS.filter((s) => l[s.column]).map((s) => ({
+    key: s.id, track: `social-${s.id}`, url: l[s.column], label: s.label,
+    icon: s.icon, brand: s.brand, fg: s.fg, mono: s.mono
+  }))
 })
 
 const btnStyle = (p) => ({
@@ -83,10 +81,12 @@ const btnStyle = (p) => ({
   '--brand-icon': p.mono ? 'currentColor' : p.brand
 })
 
-const btnAttrs = (p) =>
-  p.url
-    ? { href: p.url, target: '_blank', rel: 'noopener noreferrer', onClick: () => trackClick(release.value.id, p.track) }
-    : { type: 'button', onClick: p.fallback }
+const btnAttrs = (p) => ({
+  href: p.url,
+  target: '_blank',
+  rel: 'noopener noreferrer',
+  onClick: () => trackClick(release.value.id, p.track)
+})
 
 /* ---------------- Share ---------------- */
 const share = async () => {
@@ -195,12 +195,26 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
               <span class="time-label">{{ u.label }}</span>
             </div>
           </div>
-          <p class="release-note">Releases at 00:00 (local time)</p>
+          <p class="release-note">Releases at 00:00</p>
         </template>
 
+        <div v-if="follow" class="follow-wrap">
+          <a
+            :href="follow.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="follow-btn"
+            @click="trackClick(release.id, 'follow')"
+          >
+            <svg v-if="follow.icon" class="follow-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" fill-rule="evenodd" :d="follow.icon.path" />
+            </svg>
+            <span>{{ follow.label }}</span>
+          </a>
+        </div>
+
         <div class="actions-grid">
-          <component
-            :is="p.url ? 'a' : 'button'"
+          <a
             v-for="p in platforms"
             :key="p.key"
             v-bind="btnAttrs(p)"
@@ -213,13 +227,26 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
               <text v-else x="12" y="17.5" text-anchor="middle" font-size="16" font-weight="800" fill="currentColor">{{ p.icon.letter }}</text>
             </svg>
             <span>{{ p.label }}</span>
-          </component>
+          </a>
         </div>
 
-        <div v-if="links?.artist_url" class="artist-link-container">
-          <a :href="links.artist_url" target="_blank" rel="noopener noreferrer" class="artist-btn">
-            LISTEN TO {{ release.artist }}
-          </a>
+        <!-- Instagram / TikTok: pre-release page only -->
+        <div v-if="!isReleased && socials.length" class="socials-wrap">
+          <div class="socials">
+            <a
+              v-for="p in socials"
+              :key="p.key"
+              v-bind="btnAttrs(p)"
+              class="btn-platform social-btn"
+              :class="{ 'is-mono': p.mono }"
+              :style="btnStyle(p)"
+            >
+              <svg class="platform-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" />
+              </svg>
+              <span>{{ p.label }}</span>
+            </a>
+          </div>
         </div>
       </div>
 
@@ -340,14 +367,25 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   transform: scale(0.985);
 }
 
-/* ---------- Links / footer ---------- */
-.artist-link-container { margin-top: 26px; }
-.artist-btn {
-  display: inline-block; padding-bottom: 2px; font-size: 0.65rem; font-weight: bold; letter-spacing: 1px; text-transform: uppercase;
-  text-decoration: none; color: var(--fg-dim); border-bottom: 1px solid transparent; transition: color 0.3s, border-color 0.3s;
+/* ---------- Follow (always on top) ---------- */
+.follow-wrap { margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.follow-btn {
+  width: 100%; box-sizing: border-box; padding: 16px 20px; border-radius: 100px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  font-family: var(--font-ui); font-weight: bold; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px; text-decoration: none;
+  background: var(--primary-bg); color: var(--primary-fg); border: 1px solid transparent;
+  transition: opacity 0.2s, transform 0.2s; -webkit-tap-highlight-color: transparent;
 }
-.artist-btn:hover { color: var(--fg); border-color: var(--fg); }
+.follow-icon { width: 17px; height: 17px; flex-shrink: 0; }
+@media (hover: hover) and (pointer: fine) { .follow-btn:hover { opacity: 0.88; transform: translateY(-1px); } }
+.follow-btn:active { transform: scale(0.985); opacity: 0.9; }
 
+/* ---------- Socials (pre-release, bottom of card) ---------- */
+.socials-wrap { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--line); }
+.socials { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 10px; }
+.social-btn { justify-content: center; padding: 14px 12px; }
+
+/* ---------- Footer ---------- */
 .common-footer { margin-top: 32px; display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center; color: var(--fg-dim); }
 .powered-by { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .powered-text { font-size: 0.7rem; letter-spacing: 2px; font-weight: bold; opacity: 0.7; }

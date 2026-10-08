@@ -10,6 +10,8 @@ const SOUNDCLOUD = 'M11.17 11.45V17c-1.35 0-2.44-.92-2.44-2.06v-1.13c0-1.14 1.1-
 const YOUTUBE = 'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z'
 const BANDCAMP = 'M22 6l-6.5 12h-13L9 6h13z'
 const TIKTOK = 'M12.53.02C13.84 0 15.14.01 16.44 0c.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v3.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93v4.61c-.01 3.2-2.18 6.13-5.32 6.84-3.14.71-6.55-.42-8.5-2.88-1.94-2.45-2.12-6.14-.4-8.81 1.72-2.67 5.09-3.92 8.16-3.04v3.13c-1.3-.12-2.67.14-3.66.97-.99.82-1.48 2.14-1.29 3.44.2 1.3 1.17 2.42 2.42 2.86 1.25.44 2.68.21 3.73-.59 1.05-.79 1.66-2.07 1.65-3.38V0h-1.18z'
+const INSTAGRAM = 'M7.5 2h9A5.5 5.5 0 0 1 22 7.5v9a5.5 5.5 0 0 1-5.5 5.5h-9A5.5 5.5 0 0 1 2 16.5v-9A5.5 5.5 0 0 1 7.5 2ZM7.5 4A3.5 3.5 0 0 0 4 7.5v9A3.5 3.5 0 0 0 7.5 20h9a3.5 3.5 0 0 0 3.5-3.5v-9A3.5 3.5 0 0 0 16.5 4ZM12 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7ZM17.5 5.6a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Z'
+const NOTE = 'M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z'
 // Simple stand-ins (not the official logos): ring + play, four diamonds.
 const YT_MUSIC = 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM12 5.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13ZM10 8.5v7l6-3.5Z'
 const TIDAL = 'M6.8 6.8 9.4 9.4 6.8 12 4.2 9.4ZM12 6.8 14.6 9.4 12 12 9.4 9.4ZM17.2 6.8 19.8 9.4 17.2 12 14.6 9.4ZM12 12 14.6 14.6 12 17.2 9.4 14.6Z'
@@ -41,15 +43,29 @@ export const PLATFORMS = [
   { id: 'tiktok', column: 'tiktok_url', label: 'TikTok', brand: '#000000', fg: '#ffffff', mono: true, icon: { path: TIKTOK }, search: (q) => `https://www.tiktok.com/search?q=${q}` }
 ]
 
+// Pre-save / pre-order buttons shown BEFORE release day. They only open the external link you paste
+// in the admin (ffm.to, feature.fm, iTunes pre-order, ...). No login, no API, no limits.
 export const PRESAVE = [
-  { id: 'spotify', column: 'spotify_presave_url', label: 'Spotify', cta: 'Pre-Save on Spotify' },
-  { id: 'apple', column: 'apple_presave_url', label: 'Apple Music', cta: 'Pre-Add on Apple Music' }
+  { id: 'spotify', column: 'spotify_presave_url', label: 'Spotify', cta: 'Pre-Save on Spotify', brand: '#1DB954', fg: '#06130b', icon: { path: SPOTIFY } },
+  { id: 'apple', column: 'apple_presave_url', label: 'Apple Music', cta: 'Pre-Add on Apple Music', brand: '#FA243C', fg: '#ffffff', icon: { path: APPLE } },
+  { id: 'itunes', column: 'itunes_preorder_url', label: 'iTunes', cta: 'Pre-Order on iTunes', brand: '#EA4CC0', fg: '#ffffff', icon: { path: NOTE } }
+]
+
+// Profile buttons shown at the bottom of the page BEFORE release day.
+export const SOCIALS = [
+  { id: 'instagram', column: 'social_instagram_url', label: 'Instagram', brand: '#E1306C', fg: '#ffffff', icon: { path: INSTAGRAM } },
+  { id: 'tiktok', column: 'social_tiktok_url', label: 'TikTok', brand: '#000000', fg: '#ffffff', mono: true, icon: { path: TIKTOK } }
 ]
 
 export const ARTIST_COLUMN = 'artist_url'
 
 /** Every column of the `links` table the app reads/writes. */
-export const LINK_COLUMNS = [...PLATFORMS.map((p) => p.column), ...PRESAVE.map((p) => p.column), ARTIST_COLUMN]
+export const LINK_COLUMNS = [
+  ...PLATFORMS.map((p) => p.column),
+  ...PRESAVE.map((p) => p.column),
+  ...SOCIALS.map((p) => p.column),
+  ARTIST_COLUMN
+]
 
 const BY_ID = Object.fromEntries(PLATFORMS.map((p) => [p.id, p]))
 export const platformById = (id) => BY_ID[id]
@@ -89,4 +105,47 @@ export const platformFromUrl = (raw) => {
   try { u = new URL(normalizeUrl(raw)) } catch { return null }
   const host = u.hostname.toLowerCase().replace(/^www\./, '')
   return HOSTS.find(([, re]) => re.test(host))?.[0] || null
+}
+
+/* ---------------- Follow button (built from the artist link) ---------------- */
+const FOLLOW_LABEL = {
+  spotify: 'Follow on Spotify',
+  apple: 'Follow on Apple Music',
+  youtube_music: 'Follow on YouTube Music',
+  youtube: 'Subscribe on YouTube',
+  tidal: 'Follow on Tidal',
+  deezer: 'Follow on Deezer',
+  soundcloud: 'Follow on SoundCloud',
+  bandcamp: 'Follow on Bandcamp',
+  amazon: 'Follow on Amazon Music',
+  audiomack: 'Follow on Audiomack',
+  qobuz: 'Follow on Qobuz',
+  beatport: 'Follow on Beatport',
+  pandora: 'Follow on Pandora',
+  tiktok: 'Follow on TikTok'
+}
+
+// Platforms whose artist pages contain /artist/ (to warn if a track/album link was pasted by mistake)
+const ARTIST_PATH = new Set(['spotify', 'apple', 'deezer', 'tidal'])
+
+/**
+ * Artist link -> { id, url, label, icon, mono, looksWrong }  (null if no link).
+ * The label/icon follow the platform of the link, so the button updates when you change it in the admin.
+ */
+export const followInfo = (raw) => {
+  const url = normalizeUrl(raw)
+  if (!url) return null
+  let u
+  try { u = new URL(url) } catch { return null }
+  const id = platformFromUrl(url)
+  if (id && FOLLOW_LABEL[id]) {
+    return {
+      id, url, label: FOLLOW_LABEL[id], icon: BY_ID[id].icon, mono: !!BY_ID[id].mono,
+      looksWrong: ARTIST_PATH.has(id) && !u.pathname.includes('/artist/')
+    }
+  }
+  if (/(^|\.)instagram\.com$/.test(u.hostname.replace(/^www\./, ''))) {
+    return { id: 'instagram', url, label: 'Follow on Instagram', icon: SOCIALS[0].icon, mono: false, looksWrong: false }
+  }
+  return { id: 'link', url, label: 'Follow the artist', icon: null, mono: false, looksWrong: false }
 }

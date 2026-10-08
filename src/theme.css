@@ -6,7 +6,16 @@
 /* ---------- Brand type ---------- */
 .title-serif { font-family: "Instrument Serif", serif; font-weight: normal; margin: 0; }
 .fm-logo { font-family: "Instrument Serif", serif; font-weight: normal; letter-spacing: 0.2em; display: inline-flex; align-items: baseline; }
-.fm-prefix { font-family: "Condiment", cursive; font-size: 0.5em; font-weight: 900; letter-spacing: -0.5px; margin-right: 5px; transform: translateY(-0.5em); color: var(--gato-red, #A81A1A); }
+.fm-prefix {
+  font-family: "Condiment", cursive; font-size: 0.5em; font-weight: 900; letter-spacing: -0.5px;
+  color: var(--gato-red, #A81A1A);
+  display: inline-block;
+  /* Script glyphs overhang their advance width and get clipped on the sides (esp. Safari + transform).
+     Give the ink room with padding, and cancel the extra space with negative margins so layout is unchanged. */
+  padding: 0.25em 0.3em 0.25em 0.25em;
+  margin: -0.25em calc(5px - 0.3em) -0.25em -0.25em;
+  transform: translateY(-0.5em);
+}
 
 /* ---------- Theme tokens ---------- */
 .theme-dark {
