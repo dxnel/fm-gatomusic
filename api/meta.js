@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       if (data && data.length > 0) {
         const release = data[0];
         title = `${release.artist} - ${release.title} | fm GATO`;
-        desc = `Listen to "${release.title}" by ${release.artist}.`;
+        desc = `Listen to '${release.title}' by ${release.artist}.`;
         if (release.cover_url) img = release.cover_url;
       }
     } catch (e) {
