@@ -26,13 +26,25 @@ export const hslToHex = (h, s, l) => {
 // Most "present AND colourful" colour of the cover (not just the most frequent,
 // which on most covers is black / white / grey).
 export const dominantHsl = (img) => {
-  const size = 48
+  // 1. Maintain aspect ratio to prevent distorting text/fine details
+  const MAX_DIM = 150
+  let width = img.width, height = img.height
+  if (width > MAX_DIM || height > MAX_DIM) {
+    const ratio = Math.min(MAX_DIM / width, MAX_DIM / height)
+    width = Math.max(1, Math.round(width * ratio))
+    height = Math.max(1, Math.round(height * ratio))
+  }
+
   const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
+  canvas.width = width
+  canvas.height = height
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  ctx.drawImage(img, 0, 0, size, size)
-  const data = ctx.getImageData(0, 0, size, size).data // throws if the canvas is tainted
+  
+  // 2. Disable smoothing: prevents vibrant text from blending into black backgrounds and becoming dull
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(img, 0, 0, width, height)
+  
+  const data = ctx.getImageData(0, 0, width, height).data
 
   const buckets = new Map()
   for (let i = 0; i < data.length; i += 4) {
@@ -46,17 +58,24 @@ export const dominantHsl = (img) => {
 
   let best = null
   let bestScore = -1
+  
   for (const e of buckets.values()) {
     const { s, l } = rgbToHsl(e.r / e.n, e.g / e.n, e.b / e.n)
     
-    // Expand the penalty range to catch dark greys, and severely drop their multiplier
-    const extremePenalty = l < 0.15 || l > 0.85 ? 0.05 : 1
+    // 3. Continuous Lightness Weight: Peaks between 0.15 and 0.85. 
+    // Smoothly drops to exactly 0 for pure black or pure white.
+    let lWeight = 1
+    if (l < 0.15) lWeight = l / 0.15
+    else if (l > 0.85) lWeight = (1 - l) / 0.15
     
-    // Quadratically weight saturation so true colors easily beat massive areas of tinted grey
-    const score = e.n * (Math.pow(s, 2) + 0.01) * extremePenalty
+    // 4. Score Formula:
+    // - Math.pow(s, 3): Cubing saturation gives vibrant colors an insurmountable advantage.
+    // - Math.pow(lWeight, 2): Squaring the lightness weight heavily punishes near-black artifact colors (like the invisible teal).
+    const score = e.n * Math.pow(s, 3) * Math.pow(lWeight, 2)
     
     if (score > bestScore) { bestScore = score; best = e }
   }
+  
   if (!best) return { h: 0, s: 0 }
   const { h, s } = rgbToHsl(best.r / best.n, best.g / best.n, best.b / best.n)
   return { h, s }
@@ -64,8 +83,7 @@ export const dominantHsl = (img) => {
 
 export const buildPalette = ({ h, s }, dark) => {
   const sat = s * 100
-  // Bumped neutral threshold from 8 to 15 to prevent artifact hues from becoming vibrant accents
-  const neutral = sat < 15
+  const neutral = sat < 10
   return {
     bg: dark
       ? hslToHex(h, neutral ? 0 : Math.min(sat, 60) * 0.7, 10)
