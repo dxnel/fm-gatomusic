@@ -557,7 +557,7 @@ onUnmounted(() => {
       <form class="login-card g-card" @submit.prevent="handleLogin">
         <img :src="logoUrl" alt="" class="logo-login" />
         <h1 class="fm-logo brand-huge"><span class="fm-prefix">fm</span>GATO</h1>
-        <p class="subtitle">Label Studio</p>
+        <p class="subtitle">Studio</p>
         <input v-model="email" type="email" placeholder="Email" class="g-input" autocomplete="username" />
         <input v-model="password" type="password" placeholder="Password" class="g-input" autocomplete="current-password" />
         <button type="submit" class="g-btn g-btn--primary g-btn--block" :disabled="isLoggingIn">
@@ -633,7 +633,6 @@ onUnmounted(() => {
       <p v-else class="empty">{{ releases.length ? 'No release matches.' : 'No releases yet. Create your first one.' }}</p>
 
       <footer class="footer">
-        <span class="powered-text">BUILT WITH</span>
         <span class="fm-logo"><span class="fm-prefix">fm</span>GATO</span>
       </footer>
     </div>
