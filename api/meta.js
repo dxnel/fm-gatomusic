@@ -8,8 +8,8 @@ export default async function handler(req, res) {
   const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 
   // Default Fallback Meta Tags (for /admin or missing links)
-  let title = "fm GATO | Label Studio";
-  let desc = "GATO Music Releases";
+  let title = "fm GATO";
+  let desc = "Listen to the lastest music.";
   let img = "https://fm.gatomusic.ch/src/assets/gato_logo.png"; // Fallback image
 
   // If it's a release link, fetch the exact cover art and text from Supabase
