@@ -53,8 +53,8 @@ export const PRESAVE = [
 
 // Profile buttons shown at the bottom of the page.
 export const SOCIALS = [
-  { id: 'instagram', column: 'social_instagram_url', label: 'Instagram', brand: '#E1306C', fg: '#ffffff', icon: { path: INSTAGRAM } },
-  { id: 'tiktok', column: 'social_tiktok_url', label: 'TikTok', brand: '#000000', fg: '#ffffff', mono: true, icon: { path: TIKTOK } }
+  { id: 'instagram', column: 'social_instagram_url', label: '', brand: '#E1306C', fg: '#ffffff', icon: { path: INSTAGRAM } },
+  { id: 'tiktok', column: 'social_tiktok_url', label: '', brand: '#000000', fg: '#ffffff', mono: true, icon: { path: TIKTOK } }
 ]
 
 export const ARTIST_COLUMN = 'artist_url'

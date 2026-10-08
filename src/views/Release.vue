@@ -52,14 +52,11 @@ const platforms = computed(() => {
   const l = links.value || {}
   if (isReleased.value) {
     return PLATFORMS.filter((p) => l[p.column]).map((p) => ({
-      key: p.id, track: p.id, url: l[p.column], label: p.cta || p.label,
-      icon: p.icon, brand: p.brand, fg: p.fg, mono: p.mono
+      id: p.id, key: p.id, track: p.id, url: l[p.column], label: p.cta || p.label
     }))
   }
-  // Before release: only the external pre-save / pre-order links pasted in the admin
   return PRESAVE.filter((p) => l[p.column]).map((p) => ({
-    key: `pre-${p.id}`, track: `presave-${p.id}`, url: l[p.column], label: p.cta,
-    icon: p.icon, brand: p.brand, fg: p.fg, mono: p.mono
+    id: p.id, key: `pre-${p.id}`, track: `presave-${p.id}`, url: l[p.column], label: p.cta
   }))
 })
 
@@ -70,15 +67,8 @@ const follow = computed(() => followInfo(links.value?.artist_url))
 const socials = computed(() => {
   const l = links.value || {}
   return SOCIALS.filter((s) => l[s.column]).map((s) => ({
-    key: s.id, track: `social-${s.id}`, url: l[s.column], label: s.label,
-    icon: s.icon, brand: s.brand, fg: s.fg, mono: s.mono
+    id: s.id, key: s.id, track: `social-${s.id}`, url: l[s.column], label: s.label
   }))
-})
-
-const btnStyle = (p) => ({
-  '--brand': p.brand,
-  '--brand-fg': p.fg,
-  '--brand-icon': p.mono ? 'currentColor' : p.brand
 })
 
 const btnAttrs = (p) => ({
@@ -206,9 +196,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
             class="follow-btn"
             @click="trackClick(release.id, 'follow')"
           >
-            <svg v-if="follow.icon" class="follow-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path fill="currentColor" fill-rule="evenodd" :d="follow.icon.path" />
-            </svg>
+            <img class="follow-icon" :src="`/icons/spotify.png`" alt="" aria-hidden="true" />
             <span>{{ follow.label }}</span>
           </a>
         </div>
@@ -219,13 +207,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
             :key="p.key"
             v-bind="btnAttrs(p)"
             class="btn-platform"
-            :class="{ 'is-mono': p.mono }"
-            :style="btnStyle(p)"
           >
-            <svg class="platform-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path v-if="p.icon.path" fill="currentColor" fill-rule="evenodd" :d="p.icon.path" />
-              <text v-else x="12" y="17.5" text-anchor="middle" font-size="16" font-weight="800" fill="currentColor">{{ p.icon.letter }}</text>
-            </svg>
+            <img class="platform-icon" :src="`/icons/${p.id}.png`" alt="" aria-hidden="true" />
             <span>{{ p.label }}</span>
           </a>
         </div>
@@ -238,12 +221,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
               :key="p.key"
               v-bind="btnAttrs(p)"
               class="btn-platform social-btn"
-              :class="{ 'is-mono': p.mono }"
-              :style="btnStyle(p)"
             >
-              <svg class="platform-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" />
-              </svg>
+              <img class="platform-icon" :src="`/icons/${p.id}.png`" alt="" aria-hidden="true" />
               <span>{{ p.label }}</span>
             </a>
           </div>
@@ -331,39 +310,36 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .time-label { margin-top: 6px; font-size: 0.55rem; font-weight: bold; letter-spacing: 2px; color: var(--fg-faint); }
 .release-note { margin: 14px 0 26px; font-size: 0.58rem; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; color: var(--fg-faint); }
 
-/* ---------- Platform buttons (same on desktop + mobile) ---------- */
+/* ---------- Platform buttons (Classic Setup) ---------- */
 .actions-grid { display: flex; flex-direction: column; gap: 10px; }
 
 .btn-platform {
-  --brand: #333;
-  --brand-fg: #fff;
-  --brand-icon: var(--brand);
-  --brand-border: transparent;
-
   width: 100%; box-sizing: border-box; padding: 16px 20px; border-radius: 100px;
-  display: flex; align-items: center; justify-content: flex-start; gap: 12px;
-  font-family: var(--font-ui); font-weight: bold; font-size: 0.7rem;
+  display: flex; align-items: center; justify-content: flex-start; gap: 14px;
+  font-family: var(--font-ui); font-weight: bold; font-size: 0.72rem;
   text-transform: uppercase; letter-spacing: 1.5px; text-decoration: none;
   cursor: pointer; -webkit-appearance: none; appearance: none;
   background: var(--btn-bg); color: var(--fg); border: 1px solid var(--btn-border);
-  transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s ease;
+  transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s ease;
   -webkit-tap-highlight-color: transparent;
 }
-.theme-dark .btn-platform.is-mono { --brand-border: rgba(255, 255, 255, 0.2); }
-.platform-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--brand-icon); transition: color 0.25s ease; }
 
-/* Desktop hover: fill with the brand colour (very soft shadow, no glow) */
+/* We use object-fit to ensure 512x512 images scale perfectly without stretching */
+.platform-icon { width: 18px; height: 18px; flex-shrink: 0; object-fit: contain; border-radius: 4px; }
+
+/* Desktop hover: Classic highlight */
 @media (hover: hover) and (pointer: fine) {
   .btn-platform:hover {
-    background: var(--brand); color: var(--brand-fg); border-color: var(--brand-border);
+    background: var(--surface-hover); 
+    border-color: var(--fg-dim);
     transform: translateY(-1px);
-    box-shadow: 0 8px 18px -14px color-mix(in srgb, var(--brand) 45%, transparent);
+    box-shadow: 0 8px 18px -14px rgba(0, 0, 0, 0.3);
   }
-  .btn-platform:hover .platform-icon { color: var(--brand-fg); }
 }
-/* Touch: same look as desktop, with a gentle press tint */
+
+/* Touch: Gentle press tint */
 .btn-platform:active {
-  background: color-mix(in srgb, var(--brand) 16%, var(--btn-bg));
+  background: var(--surface);
   transform: scale(0.985);
 }
 
@@ -371,12 +347,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .follow-wrap { margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .follow-btn {
   width: 100%; box-sizing: border-box; padding: 16px 20px; border-radius: 100px;
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  font-family: var(--font-ui); font-weight: bold; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px; text-decoration: none;
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  font-family: var(--font-ui); font-weight: bold; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.5px; text-decoration: none;
   background: var(--primary-bg); color: var(--primary-fg); border: 1px solid transparent;
   transition: opacity 0.2s, transform 0.2s; -webkit-tap-highlight-color: transparent;
 }
-.follow-icon { width: 17px; height: 17px; flex-shrink: 0; }
+.follow-icon { width: 16px; height: 16px; flex-shrink: 0; object-fit: contain; opacity: 0.9; }
 @media (hover: hover) and (pointer: fine) { .follow-btn:hover { opacity: 0.88; transform: translateY(-1px); } }
 .follow-btn:active { transform: scale(0.985); opacity: 0.9; }
 

@@ -736,9 +736,9 @@ onUnmounted(() => {
             <div v-for="p in PRESAVE" :key="p.id" class="link-item">
               <label class="sub">{{ p.cta }}</label>
               <div class="link-row">
-                <span class="link-ico" :style="{ color: p.brand }">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" /></svg>
-                </span>
+                <div class="link-ico">
+                  <img :src="`/icons/${p.id}.png`" class="admin-platform-img" alt="" />
+                </div>
                 <input v-model="current[p.column]" class="g-input" placeholder="https://ffm.to/…" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" />
                 <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
               </div>
@@ -761,12 +761,9 @@ onUnmounted(() => {
                 <span v-else-if="mismatchLabel(p)" class="tag warn">looks like {{ mismatchLabel(p) }}</span>
               </label>
               <div class="link-row">
-                <span class="link-ico" :style="{ color: p.mono ? 'var(--fg)' : p.brand }">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path v-if="p.icon.path" fill="currentColor" fill-rule="evenodd" :d="p.icon.path" />
-                    <text v-else x="12" y="17.5" text-anchor="middle" font-size="16" font-weight="800" fill="currentColor">{{ p.icon.letter }}</text>
-                  </svg>
-                </span>
+                <div class="link-ico">
+                  <img :src="`/icons/${p.id}.png`" class="admin-platform-img" alt="" />
+                </div>
                 <input v-model="current[p.column]" class="g-input" placeholder="https://" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" @input="reviewSet.delete(p.column)" />
                 <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link" @click="reviewSet.delete(p.column)"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
                 <a v-else class="icon-btn" :class="{ disabled: !searchQuery }" :title="`Search on ${p.label}`" :href="searchUrl(p.id, searchQuery)" target="_blank" rel="noopener" :aria-label="`Search on ${p.label}`"><svg class="ico" aria-hidden="true"><use href="#i-search" /></svg></a>
@@ -789,9 +786,9 @@ onUnmounted(() => {
             <div v-for="p in SOCIALS" :key="p.id" class="link-item">
               <label class="sub">{{ p.label }}</label>
               <div class="link-row">
-                <span class="link-ico" :style="{ color: p.mono ? 'var(--fg)' : p.brand }">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" /></svg>
-                </span>
+                <div class="link-ico">
+                  <img :src="`/icons/${p.id}.png`" class="admin-platform-img" alt="" />
+                </div>
                 <input v-model="current[p.column]" class="g-input" placeholder="https://" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" />
                 <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
               </div>
@@ -979,8 +976,8 @@ onUnmounted(() => {
 
 .link-item { display: flex; flex-direction: column; gap: 6px; }
 .link-row { display: flex; align-items: center; gap: 10px; }
-.link-ico { width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center; border-radius: 10px; background: var(--surface); }
-.link-ico svg { width: 18px; height: 18px; }
+.link-ico { width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center; border-radius: 10px; background: var(--surface); overflow: hidden; }
+.admin-platform-img { width: 22px; height: 22px; object-fit: contain; }
 .link-row .g-input { flex: 1; min-width: 0; }
 .tag { padding: 2px 8px; border-radius: 100px; font-size: 0.52rem; letter-spacing: 1px; font-weight: 800; margin-left: 6px; }
 .tag.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
