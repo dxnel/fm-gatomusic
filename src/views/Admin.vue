@@ -633,7 +633,7 @@ onUnmounted(() => {
       <p v-else class="empty">{{ releases.length ? 'No release matches.' : 'No releases yet. Create your first one.' }}</p>
 
       <footer class="footer">
-        <span class="powered-text">POWERED BY</span>
+        <span class="powered-text">BUILT WITH</span>
         <span class="fm-logo"><span class="fm-prefix">fm</span>GATO</span>
       </footer>
     </div>

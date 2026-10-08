@@ -252,7 +252,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 
       <footer class="common-footer">
         <div class="powered-by">
-          <span class="powered-text">POWERED BY</span>
+          <span class="powered-text">BUILT WITH</span>
           <span class="fm-logo"><span class="fm-prefix">fm</span>GATO</span>
         </div>
         <a href="https://gatomusic.ch" target="_blank" rel="noopener noreferrer" class="site-link">gatomusic.ch</a>
