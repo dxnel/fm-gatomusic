@@ -563,7 +563,7 @@ onUnmounted(() => {
         <div class="nav-brand">
           <img :src="logoUrl" alt="" class="logo-small" />
           <h1 class="fm-logo nav-title"><span class="fm-prefix">fm</span>GATO</h1>
-          <span class="nav-tag">Label Studio</span>
+          <span class="nav-tag">Studio</span>
         </div>
         <div class="nav-actions">
           <button class="g-btn g-btn--sm g-btn--ghost" @click="toggleTheme" :aria-label="adminTheme === 'dark' ? 'Switch to light' : 'Switch to dark'">
