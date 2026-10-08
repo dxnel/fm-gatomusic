@@ -9,7 +9,7 @@ export default async function handler(req, res) {
 
   // Default Fallback Meta Tags (for /admin or missing links)
   let title = "fm GATO";
-  let desc = "Listen to the lastest music.";
+  let desc = "Access the latest music releases on fm GATO.";
   let img = "https://fm.gatomusic.ch/src/assets/gato_logo.png"; // Fallback image
 
   // If it's a release link, fetch the exact cover art and text from Supabase
