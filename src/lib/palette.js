@@ -48,8 +48,13 @@ export const dominantHsl = (img) => {
   let bestScore = -1
   for (const e of buckets.values()) {
     const { s, l } = rgbToHsl(e.r / e.n, e.g / e.n, e.b / e.n)
-    const extremePenalty = l < 0.08 || l > 0.95 ? 0.3 : 1
-    const score = e.n * (0.2 + s) * extremePenalty
+    
+    // Expand the penalty range to catch dark greys, and severely drop their multiplier
+    const extremePenalty = l < 0.15 || l > 0.85 ? 0.05 : 1
+    
+    // Quadratically weight saturation so true colors easily beat massive areas of tinted grey
+    const score = e.n * (Math.pow(s, 2) + 0.01) * extremePenalty
+    
     if (score > bestScore) { bestScore = score; best = e }
   }
   if (!best) return { h: 0, s: 0 }
@@ -59,7 +64,8 @@ export const dominantHsl = (img) => {
 
 export const buildPalette = ({ h, s }, dark) => {
   const sat = s * 100
-  const neutral = sat < 8
+  // Bumped neutral threshold from 8 to 15 to prevent artifact hues from becoming vibrant accents
+  const neutral = sat < 15
   return {
     bg: dark
       ? hslToHex(h, neutral ? 0 : Math.min(sat, 60) * 0.7, 10)
