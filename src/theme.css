@@ -7,7 +7,7 @@
 .title-serif { font-family: "Instrument Serif", serif; font-weight: normal; margin: 0; }
 .fm-logo { font-family: "Instrument Serif", serif; font-weight: normal; letter-spacing: 0.2em; display: inline-flex; align-items: baseline; }
 .fm-prefix {
-  font-family: "Condiment", cursive; font-size: 0.5em; font-weight: 900; letter-spacing: -0.5px;
+  font-family: "Condiment", cursive; font-size: 0.5em; font-weight: 800; letter-spacing: -0.5px;
   color: var(--gato-red, #A81A1A);
   display: inline-block;
   /* Script glyphs overhang their advance width and get clipped on the sides (esp. Safari + transform).
@@ -16,6 +16,8 @@
   margin: -0.25em calc(5px - 0.3em) -0.25em -0.25em;
   transform: translateY(-0.5em);
 }
+
+.fm-prefix brand-huge { margin-right: 5px }
 
 /* ---------- Theme tokens ---------- */
 .theme-dark {

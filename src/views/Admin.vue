@@ -59,7 +59,6 @@ const handleLogout = async () => {
 /* ============================== data ============================== */
 const releases = ref([])
 const stats = ref({})
-const hasStats = computed(() => Object.keys(stats.value).length > 0)
 
 const flatten = (r) => {
   const l = Array.isArray(r.links) ? r.links[0] : r.links
@@ -77,7 +76,7 @@ const fetchReleases = async () => {
 
 const fetchStats = async () => {
   const { data, error } = await supabase.from('release_stats').select('*')
-  if (error || !data) return // table/view not created yet: stats simply stay hidden
+  if (error || !data) return 
   stats.value = Object.fromEntries(data.map((s) => [s.release_id, { views: Number(s.views), clicks: Number(s.clicks) }]))
 }
 
@@ -100,12 +99,6 @@ const nextRelease = computed(() =>
   releases.value.filter((r) => statusOf(r) === 'upcoming').sort((a, b) => a.release_date.localeCompare(b.release_date))[0]
 )
 
-const totals = computed(() => {
-  let views = 0, clicks = 0
-  for (const s of Object.values(stats.value)) { views += s.views; clicks += s.clicks }
-  return { views, clicks }
-})
-
 /* ---- search + filter ---- */
 const search = ref('')
 const filter = ref('all')
@@ -116,9 +109,9 @@ const filtered = computed(() => {
     .filter((r) => !q || `${r.title} ${r.artist} ${r.id}`.toLowerCase().includes(q))
     .sort((a, b) => {
       const sa = statusOf(a), sb = statusOf(b)
-      if (sa !== sb) return sa === 'upcoming' ? -1 : 1 // upcoming first
-      if (sa === 'upcoming') return a.release_date.localeCompare(b.release_date) // soonest first
-      return (b.release_date || '').localeCompare(a.release_date || '') // newest first
+      if (sa !== sb) return sa === 'upcoming' ? -1 : 1 
+      if (sa === 'upcoming') return a.release_date.localeCompare(b.release_date) 
+      return (b.release_date || '').localeCompare(a.release_date || '') 
     })
 })
 
@@ -172,7 +165,6 @@ const resetEditorState = () => {
 const openEditor = (release = null) => {
   const defaults = emptyRelease()
   const base = { ...defaults }
-  // DB rows contain nulls for empty fields: keep the defaults instead of letting null through
   if (release) for (const k of Object.keys(defaults)) if (release[k] !== null && release[k] !== undefined) base[k] = release[k]
   current.value = base
   isEditing.value = !!release
@@ -208,14 +200,12 @@ const closeEditor = async (force = false) => {
   showEditor.value = false
 }
 
-// slug follows "artist title" until you edit it yourself
 watch(() => [current.value.artist, current.value.title], () => {
   if (!isEditing.value && !slugTouched.value) current.value.id = slugify(`${current.value.artist} ${current.value.title}`)
 })
 
 watch(showEditor, (open) => { document.body.style.overflow = open ? 'hidden' : '' })
 
-/* ---- date hint ---- */
 const dateHint = computed(() => {
   const ymd = current.value.release_date
   if (!ymd) return 'No date: the page goes live immediately.'
@@ -226,10 +216,8 @@ const dateHint = computed(() => {
     : `Goes live at 00:00 Swiss time (${local} your time).`
 })
 
-/* ---- follow button preview ---- */
 const followPreview = computed(() => followInfo(current.value.artist_url))
 
-/* ---- links ---- */
 const searchQuery = computed(() => `${current.value.artist} ${current.value.title}`.trim())
 
 const mismatchLabel = (p) => {
@@ -259,7 +247,6 @@ const sortPasted = () => {
   if (unknown.length) showToast(`${unknown.length} link${unknown.length > 1 ? 's' : ''} not recognised.`, unknown.length === tokens.length ? 'error' : 'info')
 }
 
-/* ---- smart fill ---- */
 const scan = async () => {
   const input = detectInput(scanInput.value)
   if (!input) return showToast('Enter an ISRC, a Deezer / Apple Music link, or "Artist - Title".', 'error')
@@ -311,7 +298,6 @@ const applyScan = ({ meta, found, sources }) => {
   else showToast('Nothing found for that input.', 'error')
 }
 
-/* ---- artwork ---- */
 const squareCover = async (file) => {
   const url = URL.createObjectURL(file)
   try {
@@ -326,7 +312,6 @@ const squareCover = async (file) => {
     const canvas = document.createElement('canvas')
     canvas.width = canvas.height = out
     canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, out, out)
-    // Safari can't encode WebP: fall back to JPEG instead of silently producing a huge PNG
     const type = canvas.toDataURL('image/webp').startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg'
     return await new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('Encoding failed'))), type, 0.85))
   } finally {
@@ -370,7 +355,6 @@ const onDrop = (event) => {
   uploadCover(file)
 }
 
-// Copies a remote cover into your own storage (square, compressed, CORS-safe for colour extraction)
 const rehostCover = async (url, silent = false) => {
   try {
     const res = await fetch(url)
@@ -381,7 +365,6 @@ const rehostCover = async (url, silent = false) => {
   }
 }
 
-/* ---- colour preview ---- */
 let paletteTimer
 watch(() => [showEditor.value, current.value.cover_url, current.value.theme], () => {
   clearTimeout(paletteTimer)
@@ -401,7 +384,6 @@ watch(() => [showEditor.value, current.value.cover_url, current.value.theme], ()
   }, 400)
 })
 
-/* ---- per-release analytics ---- */
 const loadPlatformClicks = async (id) => {
   const { data } = await supabase.from('release_clicks_by_platform').select('platform, clicks').eq('release_id', id).order('clicks', { ascending: false })
   platformClicks.value = data || []
@@ -421,7 +403,6 @@ const clickLabel = (key) => {
   return platformById(key)?.label || key
 }
 
-/* ---- save / delete ---- */
 const saveRelease = async () => {
   if (isSaving.value) return
   const c = current.value
@@ -442,7 +423,7 @@ const saveRelease = async () => {
       title: c.title.trim(),
       artist: c.artist.trim(),
       cover_url: c.cover_url?.trim() || null,
-      release_date: c.release_date || null, // plain YYYY-MM-DD, interpreted as 00:00 Swiss time
+      release_date: c.release_date || null, 
       use_blur: c.use_blur,
       theme: c.theme
     }
@@ -484,18 +465,28 @@ const deleteRelease = async () => {
   showToast('Release deleted.', 'success')
 }
 
-/* ---- helpers ---- */
 const pageUrl = (id) => `${window.location.origin}/${id}`
 const copy = async (text, msg = 'Link copied.') => {
   try {
-    await navigator.clipboard.writeText(text)
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      // Silent fallback for older browsers or non-HTTPS environments
+      const textArea = document.createElement('textarea')
+      textArea.value = text
+      textArea.style.position = 'absolute'
+      textArea.style.left = '-999999px'
+      document.body.prepend(textArea)
+      textArea.select()
+      document.execCommand('copy')
+      textArea.remove()
+    }
     showToast(msg, 'success')
   } catch {
-    window.prompt('Copy this link', text)
+    showToast('Failed to copy link.', 'error')
   }
 }
 
-/* ---- keyboard + lifecycle ---- */
 const onKey = (e) => {
   if (!showEditor.value) return
   if (e.key === 'Escape' && !confirmState.value) closeEditor()
@@ -534,13 +525,13 @@ onUnmounted(() => {
   <div class="admin g-page" :class="`theme-${adminTheme}`" :style="{ '--page-bg': adminBg, '--accent': '#bdbdbd' }">
     <div class="g-stage" aria-hidden="true"></div>
 
-    <!-- icon sprite: real SVGs instead of text symbols (which turn into emoji on iOS) -->
     <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
       <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></symbol>
       <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7" /><path d="M8 7h9v9" /></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.6-3.6" /></symbol>
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14" /><path d="M5 12h14" /></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
     </svg>
 
     <Transition name="toast">
@@ -589,10 +580,6 @@ onUnmounted(() => {
           <span v-if="nextRelease" class="tile-s">Next: {{ nextRelease.title }} {{ relativeTo(nextRelease.release_date, now) }}</span>
         </div>
         <div class="tile"><span class="tile-n">{{ counts.live }}</span><span class="tile-l">Live</span></div>
-        <template v-if="hasStats">
-          <div class="tile"><span class="tile-n">{{ totals.views }}</span><span class="tile-l">Page views</span></div>
-          <div class="tile"><span class="tile-n">{{ totals.clicks }}</span><span class="tile-l">Link clicks</span></div>
-        </template>
       </section>
 
       <header class="toolbar">
@@ -602,7 +589,7 @@ onUnmounted(() => {
         </button>
         <div class="chips" role="tablist">
           <button v-for="f in ['all', 'upcoming', 'live']" :key="f" class="chip" :class="{ active: filter === f }" @click="filter = f">
-            {{ f }}<span class="chip-n">{{ counts[f] }}</span>
+            <span v-if="f !== 'all'" class="chip-dot" :class="f"></span> {{ f }}<span class="chip-n">{{ counts[f] }}</span>
           </button>
         </div>
       </header>
@@ -613,20 +600,20 @@ onUnmounted(() => {
             <img v-if="r.cover_url" :src="r.cover_url" :alt="r.title" loading="lazy" />
             <div v-else class="cover-ph"><span class="fm-logo"><span class="fm-prefix">fm</span>GATO</span></div>
             <span class="badge" :class="statusOf(r)">{{ badgeText(r) }}</span>
+            <div class="rel-actions">
+              <button class="glass-btn" title="Copy link" aria-label="Copy link" @click.stop="copy(pageUrl(r.id))">
+                <svg class="ico" aria-hidden="true"><use href="#i-link" /></svg>
+              </button>
+              <a class="glass-btn" title="Open page" aria-label="Open page" :href="`/${r.id}`" target="_blank" rel="noopener" @click.stop>
+                <svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg>
+              </a>
+            </div>
           </div>
           <div class="rel-body">
             <h3 class="title-serif rel-title">{{ r.title }}</h3>
             <p class="rel-meta">{{ r.artist }} · {{ formatShort(r.release_date) }}</p>
             <p class="status-line" :class="statusOf(r)">{{ badgeText(r) }}</p>
             <p v-if="stats[r.id]" class="rel-stats">{{ stats[r.id].views }} views · {{ stats[r.id].clicks }} clicks</p>
-          </div>
-          <div class="rel-actions">
-            <button class="icon-btn" title="Copy link" aria-label="Copy link" @click.stop="copy(pageUrl(r.id))">
-              <svg class="ico" aria-hidden="true"><use href="#i-link" /></svg>
-            </button>
-            <a class="icon-btn" title="Open page" aria-label="Open page" :href="`/${r.id}`" target="_blank" rel="noopener" @click.stop>
-              <svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg>
-            </a>
           </div>
         </article>
       </div>
@@ -746,15 +733,15 @@ onUnmounted(() => {
           <section class="block">
             <label class="lbl">Pre-save / pre-order links <span class="muted">(shown before release day)</span></label>
             <p class="hint">Paste your external link here (ffm.to, feature.fm, iTunes pre-order…). The button only opens it.</p>
-            <div v-for="p in PRESAVE" :key="p.id" class="link-row">
-              <span class="link-ico" :style="{ color: p.brand }">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" /></svg>
-              </span>
-              <div class="link-field">
-                <label class="sub">{{ p.cta }}</label>
+            <div v-for="p in PRESAVE" :key="p.id" class="link-item">
+              <label class="sub">{{ p.cta }}</label>
+              <div class="link-row">
+                <span class="link-ico" :style="{ color: p.brand }">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" /></svg>
+                </span>
                 <input v-model="current[p.column]" class="g-input" placeholder="https://ffm.to/…" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" />
+                <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
               </div>
-              <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
             </div>
           </section>
 
@@ -767,23 +754,23 @@ onUnmounted(() => {
               <button class="g-btn g-btn--sm" :disabled="!pasteText.trim()" @click="sortPasted">Sort links</button>
             </div>
 
-            <div v-for="p in PLATFORMS" :key="p.id" class="link-row">
-              <span class="link-ico" :style="{ color: p.mono ? 'var(--fg)' : p.brand }">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path v-if="p.icon.path" fill="currentColor" fill-rule="evenodd" :d="p.icon.path" />
-                  <text v-else x="12" y="17.5" text-anchor="middle" font-size="16" font-weight="800" fill="currentColor">{{ p.icon.letter }}</text>
-                </svg>
-              </span>
-              <div class="link-field">
-                <label class="sub">
-                  {{ p.label }}
-                  <span v-if="reviewSet.has(p.column)" class="tag warn">verify</span>
-                  <span v-else-if="mismatchLabel(p)" class="tag warn">looks like {{ mismatchLabel(p) }}</span>
-                </label>
+            <div v-for="p in PLATFORMS" :key="p.id" class="link-item">
+              <label class="sub">
+                {{ p.label }}
+                <span v-if="reviewSet.has(p.column)" class="tag warn">verify</span>
+                <span v-else-if="mismatchLabel(p)" class="tag warn">looks like {{ mismatchLabel(p) }}</span>
+              </label>
+              <div class="link-row">
+                <span class="link-ico" :style="{ color: p.mono ? 'var(--fg)' : p.brand }">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path v-if="p.icon.path" fill="currentColor" fill-rule="evenodd" :d="p.icon.path" />
+                    <text v-else x="12" y="17.5" text-anchor="middle" font-size="16" font-weight="800" fill="currentColor">{{ p.icon.letter }}</text>
+                  </svg>
+                </span>
                 <input v-model="current[p.column]" class="g-input" placeholder="https://" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" @input="reviewSet.delete(p.column)" />
+                <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link" @click="reviewSet.delete(p.column)"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
+                <a v-else class="icon-btn" :class="{ disabled: !searchQuery }" :title="`Search on ${p.label}`" :href="searchUrl(p.id, searchQuery)" target="_blank" rel="noopener" :aria-label="`Search on ${p.label}`"><svg class="ico" aria-hidden="true"><use href="#i-search" /></svg></a>
               </div>
-              <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link" @click="reviewSet.delete(p.column)"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
-              <a v-else class="icon-btn" :class="{ disabled: !searchQuery }" :title="`Search on ${p.label}`" :href="searchUrl(p.id, searchQuery)" target="_blank" rel="noopener" :aria-label="`Search on ${p.label}`"><svg class="ico" aria-hidden="true"><use href="#i-search" /></svg></a>
             </div>
           </section>
 
@@ -799,15 +786,15 @@ onUnmounted(() => {
           <!-- Socials -->
           <section class="block">
             <label class="lbl">Social profiles <span class="muted">(shown at the bottom)</span></label>
-            <div v-for="p in SOCIALS" :key="p.id" class="link-row">
-              <span class="link-ico" :style="{ color: p.mono ? 'var(--fg)' : p.brand }">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" /></svg>
-              </span>
-              <div class="link-field">
-                <label class="sub">{{ p.label }}</label>
+            <div v-for="p in SOCIALS" :key="p.id" class="link-item">
+              <label class="sub">{{ p.label }}</label>
+              <div class="link-row">
+                <span class="link-ico" :style="{ color: p.mono ? 'var(--fg)' : p.brand }">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" /></svg>
+                </span>
                 <input v-model="current[p.column]" class="g-input" placeholder="https://" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" />
+                <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
               </div>
-              <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
             </div>
           </section>
 
@@ -822,16 +809,14 @@ onUnmounted(() => {
         </div>
 
         <footer class="drawer-foot">
-          <div class="foot-main">
-            <button class="g-btn g-btn--primary g-btn--block" :disabled="isSaving" @click="saveRelease">
-              {{ isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Publish release' }}
-            </button>
-            <span class="kbd">⌘S</span>
-          </div>
-          <div v-if="isEditing" class="foot-sub">
-            <button class="g-btn g-btn--sm g-btn--ghost" @click="duplicateRelease">Duplicate</button>
-            <button class="g-btn g-btn--sm g-btn--danger" @click="deleteRelease">Delete</button>
-          </div>
+          <button v-if="isEditing" class="icon-btn danger-btn" title="Delete release" aria-label="Delete release" @click="deleteRelease">
+            <svg class="ico" aria-hidden="true"><use href="#i-trash" /></svg>
+          </button>
+          <button v-if="isEditing" class="g-btn g-btn--ghost" @click="duplicateRelease">Duplicate</button>
+          <div class="spacer"></div>
+          <button class="g-btn g-btn--primary" :class="{'g-btn--block': !isEditing}" :disabled="isSaving" @click="saveRelease">
+            {{ isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Publish release' }}
+          </button>
         </footer>
       </aside>
     </div>
@@ -851,7 +836,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.admin { --pad: 24px; --bar-clear: 72px; /* room for Safari's floating bottom bar on phones */ }
+.admin { --pad: 24px; --bar-clear: 72px; overflow-x: hidden; width: 100%; box-sizing: border-box; }
 .ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .muted { color: var(--fg-faint); font-weight: 500; }
 .pulse { animation: g-pulse 1.5s infinite alternate; }
@@ -863,7 +848,7 @@ onUnmounted(() => {
 .login-wrap { min-height: 100dvh; display: grid; place-items: center; padding: 20px; box-sizing: border-box; }
 .login-card { width: 100%; max-width: 380px; padding: 44px 34px; text-align: center; display: flex; flex-direction: column; gap: 12px; animation: g-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
 .logo-login { width: 60px; height: auto; margin: 0 auto; }
-.brand-huge { font-size: 3.8rem; line-height: 1; margin: 4px auto 0; color: var(--fg); }
+.brand-huge { font-size: 3.8rem; line-height: 1; margin: 4px auto 0; color: var(--fg); gap: 3px; }
 .subtitle { margin: 0 0 12px; font-size: 0.7rem; letter-spacing: 3px; text-transform: uppercase; color: var(--fg-faint); }
 
 /* ---------- dashboard ---------- */
@@ -890,26 +875,31 @@ onUnmounted(() => {
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 100px; border: 1px solid var(--line); background: transparent; color: var(--fg-dim); font-family: var(--font-ui); font-size: 0.62rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; transition: all 0.2s; }
 .chip.active { background: var(--primary-bg); color: var(--primary-fg); border-color: transparent; }
 .chip-n { opacity: 0.6; }
+.chip-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.chip-dot.upcoming { background: var(--warn); }
+.chip-dot.live { background: var(--ok); }
+.chip.active .chip-dot { opacity: 0.8; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 34px 22px; }
-/* card = 2-row grid: cover (+ overlaid action buttons) on top, text below */
-.rel { display: grid; grid-template-columns: minmax(0, 1fr); cursor: pointer; outline: none; }
-.rel-cover { grid-area: 1 / 1; position: relative; aspect-ratio: 1 / 1; border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: 0 14px 30px -18px rgba(0, 0, 0, 0.5); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); margin-bottom: 12px; }
+.rel { display: flex; flex-direction: column; cursor: pointer; outline: none; }
+.rel-cover { position: relative; aspect-ratio: 1 / 1; border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: 0 14px 30px -18px rgba(0, 0, 0, 0.5); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); margin-bottom: 12px; }
 .rel-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.rel-body { grid-area: 2 / 1; min-width: 0; }
+.rel-body { min-width: 0; }
 .status-line { display: none; }
-.cover-ph { width: 100%; height: 100%; display: grid; place-items: center; font-size: 1.6rem; color: var(--fg-faint); }
+.cover-ph { width: 100%; height: 100%; display: grid; place-items: center; font-size: 2.2rem; color: var(--fg-faint); }
 .rel:focus-visible .rel-cover { outline: 2px solid var(--fg-dim); outline-offset: 3px; }
 .rel:focus-within .rel-actions { opacity: 1; }
-/* desktop: lift the cover and reveal the action buttons on hover */
 @media (hover: hover) and (pointer: fine) {
   .rel:hover .rel-cover { transform: translateY(-3px); }
   .rel:hover .rel-actions { opacity: 1; }
 }
+
 .badge { position: absolute; top: 10px; left: 10px; padding: 5px 10px; border-radius: 100px; font-size: 0.52rem; font-weight: 800; letter-spacing: 1.2px; background: rgba(0, 0, 0, 0.55); color: #fff; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .badge.live { background: rgba(26, 127, 69, 0.85); }
-.rel-actions { grid-area: 1 / 1; align-self: end; justify-self: end; margin: 0 8px 20px 0; position: relative; z-index: 2; display: flex; gap: 6px; opacity: 0; transition: opacity 0.2s; }
+
+.rel-actions { position: absolute; bottom: 12px; right: 12px; z-index: 2; display: flex; gap: 8px; opacity: 0; transition: opacity 0.2s; }
 @media (hover: none) { .rel-actions { opacity: 1; } }
+
 .rel-title { font-size: 1.55rem; line-height: 1.1; color: var(--fg); margin: 0 0 4px; }
 .rel-meta { margin: 0; font-size: 0.66rem; letter-spacing: 1px; text-transform: uppercase; color: var(--fg-dim); }
 .rel-stats { margin: 4px 0 0; font-size: 0.62rem; letter-spacing: 0.5px; color: var(--fg-faint); }
@@ -920,8 +910,15 @@ onUnmounted(() => {
 .icon-btn.disabled { opacity: 0.4; pointer-events: none; }
 @media (hover: hover) and (pointer: fine) { .icon-btn:hover { background: var(--surface-hover); } }
 
+/* absolute positioned glass buttons for hover actions */
+.glass-btn { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: none; cursor: pointer; transition: transform 0.2s, background 0.2s; flex-shrink: 0; text-decoration: none; }
+.glass-btn:hover { background: rgba(0, 0, 0, 0.8); }
+.glass-btn:active { transform: scale(0.92); }
+
+.danger-btn { border-color: transparent; background: color-mix(in srgb, var(--danger, #ef4444) 15%, transparent); color: var(--danger, #ef4444); }
+@media (hover: hover) and (pointer: fine) { .danger-btn:hover { background: var(--danger, #ef4444); color: #fff; } }
+
 .footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line); display: flex; justify-content: center; align-items: center; gap: 10px; color: var(--fg-dim); }
-.powered-text { font-size: 0.7rem; letter-spacing: 2px; font-weight: bold; opacity: 0.7; }
 .footer .fm-logo { font-size: 1.5rem; }
 
 /* ---------- drawer ---------- */
@@ -934,21 +931,19 @@ onUnmounted(() => {
 .dirty { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font-size: 0.62rem; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 800; color: var(--warn); }
 .dirty-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .drawer-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 22px 28px 30px; display: flex; flex-direction: column; gap: 26px; }
-.drawer-foot { padding: 16px 28px calc(env(safe-area-inset-bottom, 0px) + 16px); border-top: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 10px; }
-.foot-main { display: flex; align-items: center; gap: 12px; }
-.kbd { font-size: 0.62rem; letter-spacing: 1px; color: var(--fg-faint); white-space: nowrap; }
-@media (hover: none) { .kbd { display: none; } }
-.foot-sub { display: flex; justify-content: space-between; }
+.drawer-foot { display: flex; flex-direction: row; align-items: center; gap: 12px; padding: 16px 28px calc(env(safe-area-inset-bottom, 0px) + 16px); border-top: 1px solid var(--line); background: var(--panel); }
+.drawer-foot .spacer { flex: 1; }
 
 .block { display: flex; flex-direction: column; gap: 12px; }
 .lbl { font-size: 0.62rem; letter-spacing: 2px; text-transform: uppercase; font-weight: 800; color: var(--fg-dim); }
-.sub { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 0.6rem; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 700; color: var(--fg-faint); }
+.sub { display: flex; align-items: center; gap: 6px; font-size: 0.6rem; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 700; color: var(--fg-faint); }
 .field { display: flex; flex-direction: column; min-width: 0; }
 .field > .lbl { margin-bottom: 6px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .row { display: flex; gap: 8px; align-items: center; }
 .row > .g-input { flex: 1; min-width: 0; }
-.g-input[type="date"] { min-height: 46px; }
+.g-input[type="date"] { appearance: none; -webkit-appearance: none; width: 100%; box-sizing: border-box; }
+.g-input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .hint { margin: 0; font-size: 0.68rem; line-height: 1.5; color: var(--fg-faint); }
 .hint.warn { color: var(--warn); }
 .check-row { display: flex; align-items: center; gap: 10px; font-size: 0.74rem; color: var(--fg-dim); cursor: pointer; }
@@ -981,12 +976,13 @@ onUnmounted(() => {
 
 .paste { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .paste textarea { resize: vertical; min-height: 56px; }
-.link-row { display: flex; align-items: flex-end; gap: 10px; }
-.link-ico { width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center; margin-bottom: 1px; border-radius: 10px; background: var(--surface); }
+
+.link-item { display: flex; flex-direction: column; gap: 6px; }
+.link-row { display: flex; align-items: center; gap: 10px; }
+.link-ico { width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center; border-radius: 10px; background: var(--surface); }
 .link-ico svg { width: 18px; height: 18px; }
-.link-field { flex: 1; min-width: 0; }
-.link-row .icon-btn { margin-bottom: 1px; }
-.tag { padding: 2px 8px; border-radius: 100px; font-size: 0.52rem; letter-spacing: 1px; font-weight: 800; }
+.link-row .g-input { flex: 1; min-width: 0; }
+.tag { padding: 2px 8px; border-radius: 100px; font-size: 0.52rem; letter-spacing: 1px; font-weight: 800; margin-left: 6px; }
 .tag.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 
 .perf { margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--fg); }
@@ -1019,31 +1015,30 @@ onUnmounted(() => {
   .navbar { padding-bottom: 16px; margin-bottom: 18px; }
   .logo-small { width: 28px; }
 
-  /* stats: 3 + 2 compact tiles instead of an orphan column */
-  .tiles { grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 20px; }
-  .tile { grid-column: span 2; padding: 12px 14px; border-radius: 16px; }
-  .tile:nth-child(n + 4) { grid-column: span 3; }
+  .tiles { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 20px; }
+  .tile { padding: 12px 14px; border-radius: 16px; }
   .tile-n { font-size: 1.8rem; }
   .tile-l { font-size: 0.54rem; letter-spacing: 1.5px; }
   .tile-s { display: none; }
 
-  /* toolbar: search + "+" on one row, filters scroll sideways below */
   .toolbar { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 18px; }
   .search { flex: none; order: 0; }
-  .new-btn { order: 0; margin: 0; width: 48px; height: 48px; padding: 0; border-radius: 50%; }
+  .new-btn { order: 0; margin: 0; width: 48px; height: 48px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
   .new-btn span { display: none; }
   .new-btn .ico { width: 20px; height: 20px; stroke-width: 2.4; }
   .chips { order: 0; grid-column: 1 / -1; overflow-x: auto; margin: 0 calc(var(--pad) * -1); padding: 0 var(--pad); scrollbar-width: none; -webkit-overflow-scrolling: touch; }
   .chips::-webkit-scrollbar { display: none; }
   .chip { flex-shrink: 0; padding: 11px 16px; }
 
-  /* releases: one tidy row each */
   .grid { grid-template-columns: 1fr; gap: 10px; }
-  .rel { grid-template-columns: 84px minmax(0, 1fr) auto; align-items: center; column-gap: 14px; padding: 10px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); }
+  .rel { flex-direction: row; align-items: center; padding: 10px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); }
   .rel:active { background: var(--surface-hover); }
-  .rel-cover { grid-area: auto; width: 84px; margin: 0; border-radius: 14px; }
-  .rel-body { grid-area: auto; }
-  .rel-actions { grid-area: auto; align-self: center; justify-self: auto; margin: 0; flex-direction: column; opacity: 1; gap: 8px; }
+  .rel-cover { width: 84px; margin: 0 14px 0 0; border-radius: 14px; flex-shrink: 0; }
+  .rel-body { flex: 1; }
+  
+  .rel-actions { position: relative; bottom: auto; right: auto; flex-direction: column; opacity: 1; gap: 8px; z-index: 2; flex-shrink: 0; margin-left: 14px; }
+  .rel-actions .glass-btn { background: var(--panel); color: var(--fg); border: 1px solid var(--line); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  
   .badge { display: none; }
   .rel-title { font-size: 1.45rem; margin: 0 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rel-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.6px; }
@@ -1051,8 +1046,7 @@ onUnmounted(() => {
   .status-line.live { color: var(--ok); }
   .footer { margin-top: 36px; }
 
-  /* editor: full-screen sheet, comfortable touch targets */
-  .icon-btn { width: 40px; height: 40px; }
+  .icon-btn, .glass-btn { width: 40px; height: 40px; }
   .drawer-head { padding-top: calc(env(safe-area-inset-top, 0px) + 14px); padding-bottom: 12px; }
   .drawer-title { font-size: 1.9rem; }
   .drawer-body { padding-top: 18px; gap: 22px; padding-bottom: 24px; }
@@ -1060,13 +1054,12 @@ onUnmounted(() => {
   .fill { padding: 14px; }
   .art-preview { width: 72px; height: 72px; }
   .link-row { gap: 8px; }
-  .link-ico { width: 32px; height: 32px; }
+  .link-ico { width: 34px; height: 34px; }
   .dialog { padding: 22px; }
   .dialog-actions .g-btn { flex: 1; }
 }
 
 @media (max-width: 640px) and (hover: none) {
-  /* Safari's floating bottom bar overlaps fixed content: keep Save above it */
   .drawer-foot { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bar-clear) - 24px); }
   .toast-wrap, .g-toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bar-clear)); }
 }
