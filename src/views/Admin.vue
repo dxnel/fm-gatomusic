@@ -799,7 +799,7 @@ onUnmounted(() => {
 
           <!-- Socials -->
           <section class="block">
-            <label class="lbl">Social profiles <span class="muted">(shown at the bottom before release day)</span></label>
+            <label class="lbl">Social profiles <span class="muted">(shown at the bottom)</span></label>
             <div v-for="p in SOCIALS" :key="p.id" class="link-row">
               <span class="link-ico" :style="{ color: p.mono ? 'var(--fg)' : p.brand }">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" :d="p.icon.path" /></svg>

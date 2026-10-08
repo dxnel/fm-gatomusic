@@ -51,7 +51,7 @@ export const PRESAVE = [
   { id: 'itunes', column: 'itunes_preorder_url', label: 'iTunes', cta: 'Pre-Order on iTunes', brand: '#EA4CC0', fg: '#ffffff', icon: { path: NOTE } }
 ]
 
-// Profile buttons shown at the bottom of the page BEFORE release day.
+// Profile buttons shown at the bottom of the page.
 export const SOCIALS = [
   { id: 'instagram', column: 'social_instagram_url', label: 'Instagram', brand: '#E1306C', fg: '#ffffff', icon: { path: INSTAGRAM } },
   { id: 'tiktok', column: 'social_tiktok_url', label: 'TikTok', brand: '#000000', fg: '#ffffff', mono: true, icon: { path: TIKTOK } }

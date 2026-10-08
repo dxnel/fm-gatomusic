@@ -231,7 +231,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         </div>
 
         <!-- Instagram / TikTok: pre-release page only -->
-        <div v-if="!isReleased && socials.length" class="socials-wrap">
+        <div v-if="socials.length" class="socials-wrap">
           <div class="socials">
             <a
               v-for="p in socials"
