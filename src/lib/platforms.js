@@ -27,7 +27,7 @@ const TIDAL = 'M6.8 6.8 9.4 9.4 6.8 12 4.2 9.4ZM12 6.8 14.6 9.4 12 12 9.4 9.4ZM1
  * search    URL builder to look the track up manually
  */
 export const PLATFORMS = [
-  { id: 'spotify', column: 'spotify_url', label: 'Spotify', cta: 'Play on Spotify', brand: '#1DB954', fg: '#06130b', icon: { path: SPOTIFY }, search: (q) => `https://open.spotify.com/search/${q}` },
+  { id: 'spotify', column: 'spotify_url', label: 'Spotify', cta: 'Spotify', brand: '#1DB954', fg: '#06130b', icon: { path: SPOTIFY }, search: (q) => `https://open.spotify.com/search/${q}` },
   { id: 'apple', column: 'apple_url', label: 'Apple Music', brand: '#FA243C', fg: '#ffffff', icon: { path: APPLE }, search: (q) => `https://music.apple.com/search?term=${q}` },
   { id: 'youtube_music', column: 'youtube_music_url', label: 'YouTube Music', brand: '#FF0033', fg: '#ffffff', icon: { path: YT_MUSIC }, search: (q) => `https://music.youtube.com/search?q=${q}` },
   { id: 'amazon', column: 'amazon_url', label: 'Amazon Music', brand: '#0A9BD1', fg: '#ffffff', icon: { path: AMAZON }, search: (q) => `https://music.amazon.com/search/${q}` },
@@ -53,8 +53,8 @@ export const PRESAVE = [
 
 // Profile buttons shown at the bottom of the page.
 export const SOCIALS = [
-  { id: 'instagram', column: 'social_instagram_url', label: '', brand: '#E1306C', fg: '#ffffff', icon: { path: INSTAGRAM } },
-  { id: 'tiktok', column: 'social_tiktok_url', label: '', brand: '#000000', fg: '#ffffff', mono: true, icon: { path: TIKTOK } }
+  { id: 'instagram', column: 'social_instagram_url', label: 'Instagram', brand: '#E1306C', fg: '#ffffff', icon: { path: INSTAGRAM } },
+  { id: 'tiktok', column: 'social_tiktok_url', label: 'TikTok', brand: '#000000', fg: '#ffffff', mono: true, icon: { path: TIKTOK } }
 ]
 
 export const ARTIST_COLUMN = 'artist_url'
