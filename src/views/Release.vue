@@ -8,6 +8,40 @@ import { trackView, trackClick } from '../lib/track'
 import { usePageTheme } from '../composables/usePageTheme'
 import logoUrl from '../assets/gato_logo.png'
 
+/* ---------------- Social Embed Meta Tags ---------------- */
+const setMetaTag = (attrName, attrValue, content) => {
+  if (!content) return
+  let element = document.querySelector(`meta[${attrName}="${attrValue}"]`)
+  if (!element) {
+    element = document.createElement('meta')
+    element.setAttribute(attrName, attrValue)
+    document.head.appendChild(element)
+  }
+  element.setAttribute('content', content)
+}
+
+const updateMetaTags = (release) => {
+  const title = `${release.artist} - ${release.title}`
+  const desc = `Listen to "${release.title}" by ${release.artist}.`
+  const url = window.location.href
+  const img = release.cover_url
+
+  document.title = `${title} | fm GATO`
+
+  // Open Graph (Facebook, Discord, iMessage, WhatsApp)
+  setMetaTag('property', 'og:type', 'music.song')
+  setMetaTag('property', 'og:title', title)
+  setMetaTag('property', 'og:description', desc)
+  setMetaTag('property', 'og:url', url)
+  setMetaTag('property', 'og:image', img)
+
+  // Twitter Cards (Forces the large image layout)
+  setMetaTag('name', 'twitter:card', 'summary_large_image')
+  setMetaTag('name', 'twitter:title', title)
+  setMetaTag('name', 'twitter:description', desc)
+  setMetaTag('name', 'twitter:image', img)
+}
+
 const route = useRoute()
 const releaseId = route.params.id
 
@@ -107,7 +141,8 @@ onMounted(async () => {
   if (releaseData) {
     release.value = releaseData
     links.value = linksData
-    document.title = `${releaseData.artist} - ${releaseData.title} | fm GATO`
+    updateMetaTags(releaseData)
+    
     apply(releaseData.cover_url, releaseData.theme)
     trackView(releaseData.id)
 
