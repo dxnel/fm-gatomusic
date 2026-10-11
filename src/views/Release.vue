@@ -190,6 +190,29 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
           <p class="release-note">Releases at 00:00</p>
         </template>
 
+
+        <!-- Tracklist -->
+        <details v-if="release.show_tracklist && release.tracklist" class="tracklist-wrap">
+          <summary class="tracklist-title">
+            <span>TRACKS</span>
+            <svg class="chevron" aria-hidden="true" viewBox="0 0 24 24">
+              <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/>
+            </svg>
+          </summary>
+          <div class="tracklist-content">
+            <div 
+              v-for="(track, index) in release.tracklist.split('\n').filter(t => t.trim())" 
+              :key="index" 
+              class="track-item"
+            >
+              <!-- Numéro généré dynamiquement -->
+              <span class="track-num">{{ index + 1 }}</span>
+              <!-- Titre du morceau (avec un regex qui efface les numéros tapés par erreur) -->
+              <span class="track-title-text">{{ track.replace(/^\d+[\.\-]?\s*/, '') }}</span>
+            </div>
+          </div>
+        </details>
+
         <div v-if="follow" class="follow-wrap">
           <a
             :href="follow.url"
@@ -214,6 +237,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
             <span>{{ p.label }}</span>
           </a>
         </div>
+
+        
 
         <!-- Instagram / TikTok: pre-release page only -->
         <div v-if="socials.length" class="socials-wrap">
@@ -357,6 +382,92 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .follow-icon { width: 16px; height: 16px; flex-shrink: 0; object-fit: contain; opacity: 0.9; }
 @media (hover: hover) and (pointer: fine) { .follow-btn:hover { opacity: 0.88; transform: translateY(-1px); } }
 .follow-btn:active { transform: scale(0.985); opacity: 0.9; }
+
+/* ---------- Tracklist ---------- */
+.tracklist-wrap { 
+  width: 100%; 
+  margin-top: -10px;
+  margin-bottom: 22px; 
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line); 
+  box-sizing: border-box;
+}
+.tracklist-title { 
+  margin: 0; 
+  font-family: var(--font-ui); 
+  font-size: 0.65rem; 
+  font-weight: 800; 
+  letter-spacing: 2px; 
+  text-transform: uppercase; 
+  color: var(--fg-dim); 
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none; /* Cache la flèche native du navigateur */
+  user-select: none;
+  transition: color 0.2s;
+}
+.tracklist-title::-webkit-details-marker { display: none; } /* Pour Safari */
+.tracklist-title:hover { color: var(--fg); }
+
+.tracklist-title .chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* Quand la balise <details> est ouverte, on tourne la flèche */
+details[open] .tracklist-title .chevron {
+  transform: rotate(180deg);
+}
+
+.tracklist-content { 
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; 
+  margin: 20px auto 0; 
+  width: fit-content; 
+  gap: 12px; /* Un bel espace pour laisser respirer les morceaux */
+  animation: fadeDown 0.3s ease;
+}
+
+.track-item {
+  display: flex;
+  align-items: baseline; /* Aligne parfaitement la base du numéro avec le texte */
+  gap: 14px; /* L'espace entre le chiffre et le titre */
+  text-align: left;
+}
+
+.track-num {
+  font-family: var(--font-ui);
+  font-size: 0.9rem; 
+  font-weight: 800; 
+  color: var(--fg-faint); /* Couleur très discrète (GATO style) */
+  min-width: 18px; /* Empêche le texte de bouger quand on passe de 9 à 10 */
+  text-align: right;
+  font-variant-numeric: tabular-nums; /* Garde les chiffres parfaitement alignés */
+}
+
+.track-title-text {
+  font-family: var(--font-ui); 
+  font-size: 0.95rem; 
+  font-weight: 500; 
+  color: var(--fg); 
+  opacity: 0.95;
+  white-space: normal; 
+  word-break: break-word;
+}
+
+@keyframes fadeDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 0.92; transform: translateY(0); }
+}
+
+@keyframes fadeDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 0.92; transform: translateY(0); }
+}
 
 /* ---------- Socials (pre-release, bottom of card) ---------- */
 .socials-wrap { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--line); }

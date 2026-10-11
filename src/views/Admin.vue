@@ -125,7 +125,7 @@ const slugify = (s) =>
 
 const emptyRelease = () => ({
   id: '', isrc: '', title: '', artist: '', cover_url: '', release_date: '',
-  use_blur: true, theme: 'dark',
+  use_blur: true, theme: 'dark', show_tracklist: false, tracklist: '',
   ...Object.fromEntries(LINK_COLUMNS.map((c) => [c, '']))
 })
 
@@ -425,7 +425,9 @@ const saveRelease = async () => {
       cover_url: c.cover_url?.trim() || null,
       release_date: c.release_date || null, 
       use_blur: c.use_blur,
-      theme: c.theme
+      theme: c.theme,
+      show_tracklist: !!c.show_tracklist,
+      tracklist: c.tracklist?.trim() || null
     }
     const { error: relError } = await supabase.from('releases').upsert(releaseRow)
     if (relError) throw relError
@@ -727,6 +729,17 @@ onUnmounted(() => {
               {{ paletteError }}
               <button class="link" @click="rehostCover(current.cover_url)">Re-host cover</button>
             </p>
+          </section>
+
+          <!-- Tracklist -->
+          <section class="block">
+            <label class="lbl">Tracklist</label>
+            <label class="check-row">
+              <input type="checkbox" v-model="current.show_tracklist" /> Afficher une tracklist
+            </label>
+            <div class="paste" v-if="current.show_tracklist">
+              <textarea v-model="current.tracklist" class="g-input" rows="4" placeholder="1. Intro&#10;2. Track 2&#10;3. Outro"></textarea>
+            </div>
           </section>
 
           <!-- Pre-save -->
