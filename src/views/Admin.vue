@@ -1,12 +1,17 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { supabase } from '../supabase'
-import { PLATFORMS, PRESAVE, SOCIALS, LINK_COLUMNS, platformById, platformFromUrl, normalizeUrl, searchUrl, followInfo } from '../lib/platforms'
+import { PLATFORMS, PRESAVE, SOCIALS, LINK_COLUMNS, platformById, normalizeUrl } from '../lib/platforms'
 import { toYMD, zurichMidnight, isLive, relativeTo, formatShort } from '../lib/releaseDate'
 import { detectInput, runScan, cleanIsrc } from '../lib/scan'
 import { loadPalette } from '../lib/palette'
 import { useSystemChrome } from '../composables/useSystemChrome'
 import logoUrl from '../assets/gato_logo.png'
+import StudioLinks from '../components/StudioLinks.vue'
+import StudioActions from '../components/StudioActions.vue'
+import { Sun, Moon, LogOut, Plus, X, Search, Upload, Check, LoaderCircle, Trash2 } from '@lucide/vue'
+import '../studio.css'
+import { slugify, makeReleaseCopy } from '../lib/studio'
 
 /* ============================== theme ============================== */
 const adminTheme = ref('dark')
@@ -76,7 +81,7 @@ const fetchReleases = async () => {
 
 const fetchStats = async () => {
   const { data, error } = await supabase.from('release_stats').select('*')
-  if (error || !data) return 
+  if (error || !data) return
   stats.value = Object.fromEntries(data.map((s) => [s.release_id, { views: Number(s.views), clicks: Number(s.clicks) }]))
 }
 
@@ -87,7 +92,7 @@ const now = ref(Date.now())
 let clock
 
 const statusOf = (r) => (isLive(r.release_date, now.value) ? 'live' : 'upcoming')
-const badgeText = (r) => (statusOf(r) === 'live' ? 'LIVE' : `UPCOMING · ${relativeTo(r.release_date, now.value)}`)
+const badgeText = (r) => (statusOf(r) === 'live' ? 'Live' : `Upcoming · ${relativeTo(r.release_date, now.value)}`)
 
 const counts = computed(() => ({
   all: releases.value.length,
@@ -109,19 +114,15 @@ const filtered = computed(() => {
     .filter((r) => !q || `${r.title} ${r.artist} ${r.id}`.toLowerCase().includes(q))
     .sort((a, b) => {
       const sa = statusOf(a), sb = statusOf(b)
-      if (sa !== sb) return sa === 'upcoming' ? -1 : 1 
-      if (sa === 'upcoming') return a.release_date.localeCompare(b.release_date) 
-      return (b.release_date || '').localeCompare(a.release_date || '') 
+      if (sa !== sb) return sa === 'upcoming' ? -1 : 1
+      if (sa === 'upcoming') return a.release_date.localeCompare(b.release_date)
+      return (b.release_date || '').localeCompare(a.release_date || '')
     })
 })
 
 /* ============================== editor ============================== */
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const RESERVED = new Set(['admin', 'callback', 'api', 'assets', 'src'])
-
-const slugify = (s) =>
-  s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 
 const emptyRelease = () => ({
   id: '', isrc: '', title: '', artist: '', cover_url: '', release_date: '',
@@ -130,12 +131,40 @@ const emptyRelease = () => ({
 })
 
 const showEditor = ref(false)
+const editorSession = ref(0)
+const deletingId = ref(null)
+const editorTab = ref('release')
+const editorTabs = [
+  { id: 'release', label: 'Release' },
+  { id: 'links', label: 'Links' },
+  { id: 'appearance', label: 'Appearance' }
+]
+const drawerBody = ref(null)
+const editorDialog = ref(null)
+const confirmDialog = ref(null)
+let returnFocus
+let confirmReturnFocus
+watch(editorTab, () => { drawerBody.value?.scrollTo({ top: 0 }) })
+watch([showEditor, confirmState], async ([open, confirmation], [wasOpen, hadConfirmation]) => {
+  if (open && !wasOpen) returnFocus = document.activeElement
+  if (confirmation && !hadConfirmation) confirmReturnFocus = document.activeElement
+  if (!confirmation && hadConfirmation) {
+    await nextTick()
+    if (confirmReturnFocus?.isConnected) confirmReturnFocus.focus({ preventScroll: true })
+    return
+  }
+  await nextTick()
+  const dialog = confirmation ? confirmDialog.value : open ? editorDialog.value : null
+  if (dialog) dialog.querySelector('button, input:not([disabled])')?.focus({ preventScroll: true })
+  else if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
+  else document.querySelector('.new-btn')?.focus({ preventScroll: true })
+}, { flush: 'post' })
 const isEditing = ref(false)
 const isSaving = ref(false)
 const current = ref(emptyRelease())
-const snapshot = ref('')
+const snapshot = ref(null)
 const slugTouched = ref(false)
-const isDirty = computed(() => showEditor.value && JSON.stringify(current.value) !== snapshot.value)
+const isDirty = computed(() => showEditor.value && (!snapshot.value || Object.keys(snapshot.value).some((key) => current.value[key] !== snapshot.value[key])))
 
 const scanInput = ref('')
 const isScanning = ref(false)
@@ -143,18 +172,19 @@ const scanStep = ref('')
 const scanReport = ref(null)
 const overwrite = ref(false)
 const reviewSet = ref(new Set())
-const pasteText = ref('')
 const palette = ref(null)
 const paletteError = ref('')
 const platformClicks = ref([])
 const selectedFileName = ref('')
 const isUploading = ref(false)
 const dragging = ref(false)
+const editorBusy = computed(() => isSaving.value || isUploading.value || isScanning.value || !!deletingId.value)
+const filledLinkCount = computed(() => LINK_COLUMNS.filter((column) => current.value[column]?.trim()).length)
+const trackCount = computed(() => (current.value.tracklist || '').split('\n').filter((line) => line.trim()).length)
 
 const resetEditorState = () => {
   scanReport.value = null
   reviewSet.value = new Set()
-  pasteText.value = ''
   palette.value = null
   paletteError.value = ''
   platformClicks.value = []
@@ -162,37 +192,38 @@ const resetEditorState = () => {
   overwrite.value = false
 }
 
-const openEditor = (release = null) => {
+const openEditor = (release = null, tab = 'release') => {
+  if (deletingId.value) return
   const defaults = emptyRelease()
   const base = { ...defaults }
   if (release) for (const k of Object.keys(defaults)) if (release[k] !== null && release[k] !== undefined) base[k] = release[k]
   current.value = base
   isEditing.value = !!release
   slugTouched.value = !!release
-  snapshot.value = JSON.stringify(base)
+  snapshot.value = { ...base }
   scanInput.value = base.isrc || ''
   resetEditorState()
+  editorSession.value++
+  editorTab.value = tab
   showEditor.value = true
   if (release) loadPlatformClicks(release.id)
 }
 
-const duplicateRelease = () => {
-  const copy = {
-    ...current.value,
-    isrc: '',
-    release_date: '',
-    title: current.value.title
-  }
-  copy.id = slugify(`${copy.artist} ${copy.title}`) + '-2'
-  current.value = copy
-  isEditing.value = false
-  slugTouched.value = false
-  snapshot.value = ''
-  resetEditorState()
-  showToast('Duplicated. Set a new title, slug and date.', 'info')
+const duplicateRelease = (source = current.value) => {
+  if (editorBusy.value) return
+  const copy = makeReleaseCopy(source, releases.value)
+  openEditor()
+  const base = emptyRelease()
+  for (const key of Object.keys(base)) if (copy[key] != null) base[key] = copy[key]
+  current.value = base
+  slugTouched.value = true
+  snapshot.value = null
+  showToast('Copy created. Review its links and release date before publishing.', 'info')
+  nextTick(() => editorDialog.value?.querySelector('#release-title')?.focus())
 }
 
 const closeEditor = async (force = false) => {
+  if (editorBusy.value) return
   if (!force && isDirty.value) {
     const discard = await askConfirm({ title: 'Discard changes?', message: 'You have unsaved changes in this release.', confirmLabel: 'Discard', danger: true })
     if (!discard) return
@@ -204,7 +235,7 @@ watch(() => [current.value.artist, current.value.title], () => {
   if (!isEditing.value && !slugTouched.value) current.value.id = slugify(`${current.value.artist} ${current.value.title}`)
 })
 
-watch(showEditor, (open) => { document.body.style.overflow = open ? 'hidden' : '' })
+watch([showEditor, confirmState], ([open, confirmation]) => { document.body.style.overflow = open || confirmation ? 'hidden' : '' })
 
 const dateHint = computed(() => {
   const ymd = current.value.release_date
@@ -216,39 +247,16 @@ const dateHint = computed(() => {
     : `Goes live at 00:00 Swiss time (${local} your time).`
 })
 
-const followPreview = computed(() => followInfo(current.value.artist_url))
-
 const searchQuery = computed(() => `${current.value.artist} ${current.value.title}`.trim())
-
-const mismatchLabel = (p) => {
-  const v = current.value[p.column]
-  if (!v) return ''
-  const detected = platformFromUrl(v)
-  return detected && detected !== p.id ? platformById(detected).label : ''
-}
-
-const sortPasted = () => {
-  const tokens = pasteText.value.split(/[\s,]+/).filter(Boolean)
-  if (!tokens.length) return
-  let ok = 0
-  const unknown = []
-  for (const t of tokens) {
-    const url = normalizeUrl(t)
-    const id = platformFromUrl(url)
-    if (id) {
-      const col = platformById(id).column
-      current.value[col] = url
-      reviewSet.value.delete(col)
-      ok++
-    } else unknown.push(t)
-  }
-  pasteText.value = unknown.join('\n')
-  if (ok) showToast(`${ok} link${ok > 1 ? 's' : ''} sorted into the right fields.`, 'success')
-  if (unknown.length) showToast(`${unknown.length} link${unknown.length > 1 ? 's' : ''} not recognised.`, unknown.length === tokens.length ? 'error' : 'info')
+const updateLink = (column, value) => { current.value[column] = value }
+const reviewLink = (column, restore = false) => {
+  if (restore) reviewSet.value.add(column)
+  else reviewSet.value.delete(column)
 }
 
 const scan = async () => {
   const input = detectInput(scanInput.value)
+  if (editorBusy.value) return
   if (!input) return showToast('Enter an ISRC, a Deezer / Apple Music link, or "Artist - Title".', 'error')
   if (input.kind === 'unsupported') {
     return showToast(`Can't scan ${input.host} links. Paste them in the box below instead.`, 'error')
@@ -320,6 +328,7 @@ const squareCover = async (file) => {
 }
 
 const uploadCover = async (file) => {
+  if (isUploading.value || isSaving.value) return false
   isUploading.value = true
   try {
     const blob = await squareCover(file)
@@ -366,27 +375,32 @@ const rehostCover = async (url, silent = false) => {
 }
 
 let paletteTimer
-watch(() => [showEditor.value, current.value.cover_url, current.value.theme], () => {
+const paletteCache = new Map()
+watch(() => [showEditor.value, current.value.cover_url, current.value.theme, editorTab.value], ([open, url, theme, tab], _, onCleanup) => {
   clearTimeout(paletteTimer)
-  if (!showEditor.value || !current.value.cover_url) {
-    palette.value = null
-    paletteError.value = ''
-    return
-  }
+  let active = true
+  onCleanup(() => { active = false; clearTimeout(paletteTimer) })
+  palette.value = null
+  paletteError.value = ''
+  if (!open || !url || tab !== 'appearance') return
+  const key = `${theme}:${url}`
+  if (paletteCache.has(key)) { palette.value = paletteCache.get(key); return }
   paletteTimer = setTimeout(async () => {
     try {
-      palette.value = await loadPalette(current.value.cover_url, current.value.theme !== 'light')
-      paletteError.value = ''
+      const result = await loadPalette(url, theme !== 'light')
+      if (!active) return
+      if (paletteCache.size >= 20) paletteCache.delete(paletteCache.keys().next().value)
+      paletteCache.set(key, result)
+      palette.value = result
     } catch {
-      palette.value = null
-      paletteError.value = "The public page can't read colours from this image (host blocks CORS)."
+      if (active) paletteError.value = "This image host blocks colour previews. Upload the image instead."
     }
-  }, 400)
+  }, 300)
 })
 
 const loadPlatformClicks = async (id) => {
   const { data } = await supabase.from('release_clicks_by_platform').select('platform, clicks').eq('release_id', id).order('clicks', { ascending: false })
-  platformClicks.value = data || []
+  if (showEditor.value && isEditing.value && current.value.id === id) platformClicks.value = data || []
 }
 
 const clickLabel = (key) => {
@@ -403,12 +417,19 @@ const clickLabel = (key) => {
   return platformById(key)?.label || key
 }
 
+const revealField = (id, message) => {
+  editorTab.value = 'release'
+  showToast(message, 'error')
+  nextTick(() => editorDialog.value?.querySelector(`#${id}`)?.focus())
+}
+
 const saveRelease = async () => {
-  if (isSaving.value) return
+  if (editorBusy.value || confirmState.value) return
   const c = current.value
   c.id = c.id.trim()
-  if (!c.title.trim() || !c.artist.trim()) return showToast('Title and artist are required.', 'error')
-  if (!SLUG_RE.test(c.id) || RESERVED.has(c.id)) return showToast('Slug: lowercase letters, numbers and dashes only.', 'error')
+  if (!c.title.trim()) return revealField('release-title', 'Add a release title.')
+  if (!c.artist.trim()) return revealField('release-artist', 'Add an artist name.')
+  if (!SLUG_RE.test(c.id) || RESERVED.has(c.id)) return revealField('release-slug', 'Use a page URL with lowercase letters, numbers and dashes.')
 
   isSaving.value = true
   try {
@@ -423,7 +444,7 @@ const saveRelease = async () => {
       title: c.title.trim(),
       artist: c.artist.trim(),
       cover_url: c.cover_url?.trim() || null,
-      release_date: c.release_date || null, 
+      release_date: c.release_date || null,
       use_blur: c.use_blur,
       theme: c.theme,
       show_tracklist: !!c.show_tracklist,
@@ -438,7 +459,7 @@ const saveRelease = async () => {
     if (linkError) throw linkError
 
     await loadAll()
-    snapshot.value = JSON.stringify(current.value)
+    snapshot.value = { ...current.value }
     showEditor.value = false
     showToast('Saved.', 'success')
   } catch (err) {
@@ -450,21 +471,48 @@ const saveRelease = async () => {
   isSaving.value = false
 }
 
-const deleteRelease = async () => {
-  const c = current.value
+const deleteRelease = async (release = current.value) => {
+  if (editorBusy.value || confirmState.value) return
+  const { id, title } = release
   const ok = await askConfirm({
     title: 'Delete release?',
-    message: `"${c.title}" and all its links will be removed permanently.`,
-    confirmLabel: 'Delete',
+    message: `“${title}” and its links will be permanently deleted.`,
+    confirmLabel: 'Delete release',
     danger: true
   })
   if (!ok) return
-  const a = await supabase.from('links').delete().eq('release_id', c.id)
-  const b = await supabase.from('releases').delete().eq('id', c.id)
-  if (a.error || b.error) return showToast('Could not delete.', 'error')
-  await loadAll()
-  showEditor.value = false
-  showToast('Release deleted.', 'success')
+  deletingId.value = id
+  let removedLinks = null
+  let linksRemoved = false
+  try {
+    // Keep a restore copy in case the second request fails.
+    const backup = await supabase.from('links').select('*').eq('release_id', id).maybeSingle()
+    if (backup.error) throw backup.error
+    removedLinks = backup.data
+    const linksResult = await supabase.from('links').delete().eq('release_id', id)
+    if (linksResult.error) throw linksResult.error
+    linksRemoved = true
+    const result = await supabase.from('releases').delete().eq('id', id).select('id')
+    if (result.error) throw result.error
+    if (!result.data?.length) throw new Error('Release was not deleted. Check your access and try again.')
+    if (showEditor.value && current.value.id === id) showEditor.value = false
+    releases.value = releases.value.filter((item) => item.id !== id)
+    delete stats.value[id]
+    showToast('Release deleted.', 'success')
+    await nextTick()
+    document.querySelector('.rel, .new-btn')?.focus({ preventScroll: true })
+  } catch (error) {
+    if (linksRemoved && removedLinks) {
+      const restored = await supabase.from('links').upsert(removedLinks, { onConflict: 'release_id' })
+      if (restored.error) {
+        showToast('Delete failed and links could not be restored. Reload and check this release.', 'error')
+        return
+      }
+    }
+    showToast('Could not delete. Your release was kept.', 'error')
+  } finally {
+    deletingId.value = null
+  }
 }
 
 const pageUrl = (id) => `${window.location.origin}/${id}`
@@ -490,7 +538,20 @@ const copy = async (text, msg = 'Link copied.') => {
 }
 
 const onKey = (e) => {
-  if (!showEditor.value) return
+  const dialog = confirmState.value ? confirmDialog.value : showEditor.value ? editorDialog.value : null
+  if (!dialog) return
+  if (e.key === 'Tab') {
+    const items = [...dialog.querySelectorAll('button, a[href], input, textarea, [tabindex="0"]')]
+      .filter((el) => !el.disabled && el.getClientRects().length && el.tabIndex >= 0)
+    const first = items[0], last = items[items.length - 1]
+    if (e.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) { e.preventDefault(); last?.focus() }
+    else if (!e.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) { e.preventDefault(); first?.focus() }
+  }
+  if (confirmState.value) {
+    if (e.key === 'Escape') { e.preventDefault(); answerConfirm(false) }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') e.preventDefault()
+    return
+  }
   if (e.key === 'Escape' && !confirmState.value) closeEditor()
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
     e.preventDefault()
@@ -525,16 +586,6 @@ onUnmounted(() => {
 
 <template>
   <div class="admin g-page" :class="`theme-${adminTheme}`" :style="{ '--page-bg': adminBg, '--accent': '#bdbdbd' }">
-    <div class="g-stage" aria-hidden="true"></div>
-
-    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
-      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></symbol>
-      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7" /><path d="M8 7h9v9" /></symbol>
-      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.6-3.6" /></symbol>
-      <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></symbol>
-      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14" /><path d="M5 12h14" /></symbol>
-      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
-    </svg>
 
     <Transition name="toast">
       <div v-if="toast.show" :class="['g-toast', toast.type]" role="status">{{ toast.message }}</div>
@@ -551,8 +602,8 @@ onUnmounted(() => {
         <img :src="logoUrl" alt="" class="logo-login" />
         <h1 class="fm-logo brand-huge"><span class="fm-prefix">fm</span>GATO</h1>
         <p class="subtitle">Studio</p>
-        <input v-model="email" type="email" placeholder="Email" class="g-input" autocomplete="username" />
-        <input v-model="password" type="password" placeholder="Password" class="g-input" autocomplete="current-password" />
+        <input v-model="email" type="email" placeholder="Email" aria-label="Email" required class="g-input" autocomplete="username" />
+        <input v-model="password" type="password" placeholder="Password" aria-label="Password" required class="g-input" autocomplete="current-password" />
         <button type="submit" class="g-btn g-btn--primary g-btn--block" :disabled="isLoggingIn">
           {{ isLoggingIn ? 'Connecting…' : 'Connect' }}
         </button>
@@ -560,56 +611,45 @@ onUnmounted(() => {
     </main>
 
     <!-- dashboard -->
-    <div v-else class="wrap">
+    <main v-else class="wrap" :inert="showEditor || !!confirmState">
       <nav class="navbar">
         <div class="nav-brand">
           <img :src="logoUrl" alt="" class="logo-small" />
-          <h1 class="fm-logo nav-title"><span class="fm-prefix">fm</span>GATO</h1>
+          <span class="fm-logo nav-title"><span class="fm-prefix">fm</span>GATO</span>
           <span class="nav-tag">Studio</span>
         </div>
         <div class="nav-actions">
-          <button class="g-btn g-btn--sm g-btn--ghost" @click="toggleTheme" :aria-label="adminTheme === 'dark' ? 'Switch to light' : 'Switch to dark'">
-            {{ adminTheme === 'dark' ? 'Light' : 'Dark' }}
+          <button class="icon-btn nav-icon" @click="toggleTheme" :aria-label="adminTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'" :title="adminTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'">
+            <Sun v-if="adminTheme === 'dark'" :size="19" aria-hidden="true" /><Moon v-else :size="19" aria-hidden="true" />
           </button>
-          <button class="g-btn g-btn--sm g-btn--ghost" @click="handleLogout">Logout</button>
+          <button class="icon-btn nav-icon" aria-label="Log out" title="Log out" @click="handleLogout"><LogOut :size="19" aria-hidden="true" /></button>
         </div>
       </nav>
 
-      <section class="tiles">
-        <div class="tile"><span class="tile-n">{{ counts.all }}</span><span class="tile-l">Releases</span></div>
-        <div class="tile">
-          <span class="tile-n">{{ counts.upcoming }}</span><span class="tile-l">Upcoming</span>
-          <span v-if="nextRelease" class="tile-s">Next: {{ nextRelease.title }} {{ relativeTo(nextRelease.release_date, now) }}</span>
+      <header class="library-head">
+        <div>
+          <h1 class="title-serif library-title">Releases</h1>
+          <p class="library-summary">{{ counts.all }} releases<span v-if="nextRelease"> · Next: {{ nextRelease.title }} {{ relativeTo(nextRelease.release_date, now) }}</span></p>
         </div>
-        <div class="tile"><span class="tile-n">{{ counts.live }}</span><span class="tile-l">Live</span></div>
-      </section>
+        <button class="g-btn g-btn--primary new-btn" @click="openEditor()"><Plus :size="18" aria-hidden="true" /><span>New release</span></button>
+      </header>
 
-      <header class="toolbar">
-        <input v-model="search" class="g-input search" type="search" placeholder="Search title, artist, slug…" />
-        <button class="g-btn g-btn--primary new-btn" aria-label="New release" @click="openEditor(null)">
-          <svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg><span>New release</span>
-        </button>
-        <div class="chips" role="tablist">
-          <button v-for="f in ['all', 'upcoming', 'live']" :key="f" class="chip" :class="{ active: filter === f }" @click="filter = f">
+      <div class="toolbar">
+        <input v-model="search" class="g-input search" type="search" aria-label="Search releases" placeholder="Search releases…" />
+        <div class="chips" role="group" aria-label="Filter releases">
+          <button v-for="f in ['all', 'upcoming', 'live']" :key="f" class="chip" :class="{ active: filter === f }" :aria-pressed="filter === f" @click="filter = f">
             <span v-if="f !== 'all'" class="chip-dot" :class="f"></span> {{ f }}<span class="chip-n">{{ counts[f] }}</span>
           </button>
         </div>
-      </header>
+      </div>
 
       <div v-if="filtered.length" class="grid">
-        <article v-for="r in filtered" :key="r.id" class="rel" tabindex="0" @click="openEditor(r)" @keydown.enter="openEditor(r)">
+        <article v-for="r in filtered" :key="r.id" v-memo="[r, stats[r.id], now, deletingId]" class="rel" :class="{ 'is-deleting': deletingId === r.id }" tabindex="0" :aria-label="`Edit ${r.title} by ${r.artist}`" @click="openEditor(r)" @keydown.enter.self="openEditor(r)" @keydown.space.self.prevent="openEditor(r)">
           <div class="rel-cover">
-            <img v-if="r.cover_url" :src="r.cover_url" :alt="r.title" loading="lazy" />
+            <img v-if="r.cover_url" :src="r.cover_url" :alt="r.title" loading="lazy" decoding="async" width="500" height="500" />
             <div v-else class="cover-ph"><span class="fm-logo"><span class="fm-prefix">fm</span>GATO</span></div>
             <span class="badge" :class="statusOf(r)">{{ badgeText(r) }}</span>
-            <div class="rel-actions">
-              <button class="glass-btn" title="Copy link" aria-label="Copy link" @click.stop="copy(pageUrl(r.id))">
-                <svg class="ico" aria-hidden="true"><use href="#i-link" /></svg>
-              </button>
-              <a class="glass-btn" title="Open page" aria-label="Open page" :href="`/${r.id}`" target="_blank" rel="noopener" @click.stop>
-                <svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg>
-              </a>
-            </div>
+
           </div>
           <div class="rel-body">
             <h3 class="title-serif rel-title">{{ r.title }}</h3>
@@ -617,225 +657,189 @@ onUnmounted(() => {
             <p class="status-line" :class="statusOf(r)">{{ badgeText(r) }}</p>
             <p v-if="stats[r.id]" class="rel-stats">{{ stats[r.id].views }} views · {{ stats[r.id].clicks }} clicks</p>
           </div>
+          <StudioActions class="card-actions" overlay library :release-title="r.title" :label="`Actions for ${r.title}`" :href="`/${r.id}`" :disabled="!!deletingId"
+            @edit="openEditor(r)" @links="openEditor(r, 'links')" @copy="copy(pageUrl(r.id))" @duplicate="duplicateRelease(r)" @delete="deleteRelease(r)" />
         </article>
       </div>
-      <p v-else class="empty">{{ releases.length ? 'No release matches.' : 'No releases yet. Create your first one.' }}</p>
+      <div v-else class="empty">
+        <p>{{ releases.length ? 'No matching releases.' : 'Your first release starts here.' }}</p>
+        <button v-if="search || filter !== 'all'" class="g-btn g-btn--sm" @click="search = ''; filter = 'all'">Clear filters</button>
+        <button v-else class="g-btn g-btn--sm" @click="openEditor()"><Plus :size="17" aria-hidden="true" />Create release</button>
+      </div>
 
-      <footer class="footer">
-        <span class="fm-logo"><span class="fm-prefix">fm</span>GATO</span>
-      </footer>
-    </div>
+    </main>
 
     <!-- editor drawer -->
+    <Transition name="editor">
     <div v-if="showEditor" class="overlay" @click.self="closeEditor()">
-      <aside class="drawer" role="dialog" aria-modal="true" :aria-label="isEditing ? 'Edit release' : 'New release'">
+      <aside ref="editorDialog" class="drawer" :inert="!!confirmState" role="dialog" aria-modal="true" :aria-label="isEditing ? 'Edit release' : 'New release'">
         <header class="drawer-head">
           <div>
-            <h2 class="title-serif drawer-title">{{ isEditing ? 'Edit' : 'Create' }}</h2>
-            <p v-if="isDirty" class="dirty"><span class="dirty-dot"></span>Unsaved changes</p>
+            <h2 class="title-serif drawer-title">{{ isEditing ? current.title : 'New release' }}</h2>
+            <p v-if="current.artist" class="editor-context">{{ current.artist }}</p>
           </div>
-          <button class="icon-btn close-btn" title="Close" aria-label="Close" @click="closeEditor()">
-            <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+          <div class="editor-head-actions">
+          <StudioActions v-if="isEditing" :release-title="current.title" label="Release actions" :href="`/${current.id}`" :disabled="editorBusy"
+            @copy="copy(pageUrl(current.id))" @duplicate="duplicateRelease()" @delete="deleteRelease()" />
+          <button class="icon-btn close-btn" :disabled="editorBusy" title="Close" aria-label="Close" @click="closeEditor()">
+            <X :size="18" aria-hidden="true" />
           </button>
+          </div>
         </header>
 
-        <div class="drawer-body">
-          <!-- Smart fill -->
-          <section class="block fill">
-            <label class="lbl">Smart fill</label>
-            <div class="row">
-              <input v-model="scanInput" class="g-input" placeholder="ISRC, Deezer / Apple Music link, or Artist - Title" autocapitalize="off" spellcheck="false" @keydown.enter.prevent="scan" />
-              <button class="g-btn g-btn--primary" :disabled="isScanning" @click="scan">{{ isScanning ? '…' : 'Scan' }}</button>
-            </div>
-            <p v-if="isScanning" class="hint">{{ scanStep }}</p>
-            <label class="check-row">
-              <input type="checkbox" v-model="overwrite" /> Overwrite fields that are already filled
-            </label>
-
-            <div v-if="scanReport" class="report">
-              <div v-for="i in scanReport.items" :key="i.id" class="report-row">
-                <span class="dot" :class="i.confidence"></span>
-                <strong>{{ i.label }}</strong>
-                <span class="muted">{{ i.source }}<template v-if="i.confidence === 'fuzzy'"> · verify</template><template v-if="!i.applied"> · kept your value</template></span>
+        <div class="editor-tabs" role="tablist" aria-label="Release editor">
+          <button v-for="(tab, index) in editorTabs" :key="tab.id" :id="`editor-tab-${tab.id}`"
+            class="editor-tab" role="tab" :aria-selected="editorTab === tab.id" :aria-controls="`editor-panel-${tab.id}`"
+            :tabindex="editorTab === tab.id ? 0 : -1" @click="editorTab = tab.id"
+            @keydown.down.prevent="editorTab = editorTabs[(index + 1) % editorTabs.length].id; nextTick(() => editorDialog.querySelector('[aria-selected=true]').focus())"
+            @keydown.up.prevent="editorTab = editorTabs[(index + editorTabs.length - 1) % editorTabs.length].id; nextTick(() => editorDialog.querySelector('[aria-selected=true]').focus())"
+            @keydown.right.prevent="editorTab = editorTabs[(index + 1) % editorTabs.length].id; nextTick(() => editorDialog.querySelector('[aria-selected=true]').focus())"
+            @keydown.left.prevent="editorTab = editorTabs[(index + editorTabs.length - 1) % editorTabs.length].id; nextTick(() => editorDialog.querySelector('[aria-selected=true]').focus())">
+            {{ tab.label }}<span v-if="tab.id === 'links' && filledLinkCount" class="tab-count">{{ filledLinkCount }}</span>
+          </button>
+        </div>
+        <div ref="drawerBody" class="drawer-body">
+          <div v-if="editorTab === 'release'" id="editor-panel-release" class="editor-panel" role="tabpanel" aria-labelledby="editor-tab-release">
+            <!-- Smart fill -->
+            <details class="fill" :open="!isEditing">
+              <summary>Auto-fill from a music link <span aria-hidden="true">+</span></summary>
+              <div class="fill-body">
+              <div class="row">
+                <input id="release-scan" aria-label="Find release metadata and links" v-model="scanInput" class="g-input" placeholder="ISRC, music link, or Artist - Title" autocapitalize="off" spellcheck="false" @keydown.enter.prevent="scan" />
+                <button class="g-btn g-btn--primary" :disabled="isScanning" @click="scan"><Search :size="17" aria-hidden="true" />{{ isScanning ? '…' : 'Scan' }}</button>
               </div>
-              <p v-if="scanReport.missing.length" class="hint">
-                Not found: {{ scanReport.missing.join(', ') }}. Use the search button next to a field to search it manually.
-              </p>
-            </div>
-          </section>
-
-          <!-- Basics -->
-          <section class="block">
-            <div class="grid-2">
-              <div class="field"><label class="lbl">Title *</label><input v-model="current.title" class="g-input" /></div>
-              <div class="field"><label class="lbl">Artist *</label><input v-model="current.artist" class="g-input" /></div>
-            </div>
-            <div class="grid-2">
-              <div class="field">
-                <label class="lbl">URL slug *</label>
-                <div class="row">
-                  <input v-model="current.id" class="g-input" :disabled="isEditing" autocapitalize="off" spellcheck="false" @input="slugTouched = true" />
-                  <button v-if="isEditing" class="icon-btn" title="Copy link" aria-label="Copy link" @click="copy(pageUrl(current.id))">
-                    <svg class="ico" aria-hidden="true"><use href="#i-link" /></svg>
-                  </button>
-                  <a v-if="isEditing" class="icon-btn" title="Open page" aria-label="Open page" :href="`/${current.id}`" target="_blank" rel="noopener">
-                    <svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg>
-                  </a>
-                </div>
-              </div>
-              <div class="field">
-                <label class="lbl">Release date</label>
-                <input v-model="current.release_date" type="date" class="g-input" />
-              </div>
-            </div>
-            <p class="hint">{{ dateHint }}</p>
-            <div class="field">
-              <label class="lbl">ISRC</label>
-              <input v-model="current.isrc" class="g-input" placeholder="FR9W1…" autocapitalize="characters" spellcheck="false" />
-            </div>
-          </section>
-
-          <!-- Artwork -->
-          <section class="block">
-            <label class="lbl">Artwork</label>
-            <div class="art" :class="{ drag: dragging }" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="onDrop">
-              <div class="art-preview">
-                <img v-if="current.cover_url" :src="current.cover_url" alt="" />
-                <span v-else>1:1</span>
-              </div>
-              <div class="art-side">
-                <label for="cover-upload" class="g-btn g-btn--sm" :class="{ busy: isUploading }">{{ isUploading ? 'Processing…' : 'Choose or drop image' }}</label>
-                <input id="cover-upload" type="file" accept="image/*" hidden :disabled="isUploading" @change="handleImageUpload" />
-                <span class="muted file">{{ selectedFileName || 'Cropped to a square, compressed automatically.' }}</span>
-              </div>
-            </div>
-            <input v-model="current.cover_url" class="g-input" placeholder="Or paste an image URL…" inputmode="url" autocapitalize="off" />
-          </section>
-
-          <!-- Look -->
-          <section class="block">
-            <label class="lbl">Page look</label>
-            <div class="seg">
-              <label><input type="radio" v-model="current.theme" value="dark" /><span>Dark</span></label>
-              <label><input type="radio" v-model="current.theme" value="light" /><span>Light</span></label>
-            </div>
-            <label class="check-row"><input type="checkbox" v-model="current.use_blur" /> Blurred cover background</label>
-
-            <div v-if="palette" class="palette" :style="{ background: palette.bg }">
-              <span class="swatch" :style="{ background: palette.accent }"></span>
-              <span :style="{ color: palette.accent }">Page colour {{ palette.bg }}</span>
-            </div>
-            <p v-else-if="paletteError" class="hint warn">
-              {{ paletteError }}
-              <button class="link" @click="rehostCover(current.cover_url)">Re-host cover</button>
-            </p>
-          </section>
-
-          <!-- Tracklist -->
-          <section class="block">
-            <label class="lbl">Tracklist</label>
-            <label class="check-row">
-              <input type="checkbox" v-model="current.show_tracklist" /> Afficher une tracklist
-            </label>
-            <div class="paste" v-if="current.show_tracklist">
-              <textarea v-model="current.tracklist" class="g-input" rows="4" placeholder="1. Intro&#10;2. Track 2&#10;3. Outro"></textarea>
-            </div>
-          </section>
-
-          <!-- Pre-save -->
-          <section class="block">
-            <label class="lbl">Pre-save / pre-order links <span class="muted">(shown before release day)</span></label>
-            <p class="hint">Paste your external link here (ffm.to, feature.fm, iTunes pre-order…). The button only opens it.</p>
-            <div v-for="p in PRESAVE" :key="p.id" class="link-item">
-              <label class="sub">{{ p.cta }}</label>
-              <div class="link-row">
-                <div class="link-ico">
-                  <img :src="`/icons/${p.id}.png`" class="admin-platform-img" alt="" />
-                </div>
-                <input v-model="current[p.column]" class="g-input" placeholder="https://ffm.to/…" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" />
-                <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
-              </div>
-            </div>
-          </section>
-
-          <!-- Streaming links -->
-          <section class="block">
-            <label class="lbl">Streaming links</label>
-
-            <div class="paste">
-              <textarea v-model="pasteText" class="g-input" rows="2" placeholder="Paste several links here (any platform). They get sorted into the right fields."></textarea>
-              <button class="g-btn g-btn--sm" :disabled="!pasteText.trim()" @click="sortPasted">Sort links</button>
-            </div>
-
-            <div v-for="p in PLATFORMS" :key="p.id" class="link-item">
-              <label class="sub">
-                {{ p.label }}
-                <span v-if="reviewSet.has(p.column)" class="tag warn">verify</span>
-                <span v-else-if="mismatchLabel(p)" class="tag warn">looks like {{ mismatchLabel(p) }}</span>
+              <p v-if="isScanning" class="hint" role="status">{{ scanStep }}</p>
+              <label class="check-row">
+                <input type="checkbox" v-model="overwrite" /> Overwrite fields that are already filled
               </label>
-              <div class="link-row">
-                <div class="link-ico">
-                  <img :src="`/icons/${p.id}.png`" class="admin-platform-img" alt="" />
+
+              <div v-if="scanReport" class="report">
+                <div v-for="i in scanReport.items" :key="i.id" class="report-row">
+                  <span class="dot" :class="i.confidence"></span>
+                  <strong>{{ i.label }}</strong>
+                  <span class="muted">{{ i.source }}<template v-if="i.confidence === 'fuzzy'"> · verify</template><template v-if="!i.applied"> · kept your value</template></span>
                 </div>
-                <input v-model="current[p.column]" class="g-input" placeholder="https://" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" @input="reviewSet.delete(p.column)" />
-                <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link" @click="reviewSet.delete(p.column)"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
-                <a v-else class="icon-btn" :class="{ disabled: !searchQuery }" :title="`Search on ${p.label}`" :href="searchUrl(p.id, searchQuery)" target="_blank" rel="noopener" :aria-label="`Search on ${p.label}`"><svg class="ico" aria-hidden="true"><use href="#i-search" /></svg></a>
+                <p v-if="scanReport.missing.length" class="hint">
+                  Not found: {{ scanReport.missing.join(', ') }}. Find more platforms in Links.
+                </p>
               </div>
-            </div>
-          </section>
+              </div>
+            </details>
 
-          <!-- Artist / follow -->
-          <section class="block">
-            <label class="lbl">Follow button <span class="muted">(always shown, above the other buttons)</span></label>
-            <input v-model="current.artist_url" class="g-input" placeholder="https://open.spotify.com/artist/…" inputmode="url" autocapitalize="off" spellcheck="false" />
-            <p v-if="followPreview" class="hint">Button reads: <strong>{{ followPreview.label }}</strong></p>
-            <p v-else class="hint">No link = no Follow button.</p>
-            <p v-if="followPreview?.looksWrong" class="hint warn">This doesn't look like an artist profile link (no /artist/ in it).</p>
-          </section>
-
-          <!-- Socials -->
-          <section class="block">
-            <label class="lbl">Social profiles <span class="muted">(shown at the bottom)</span></label>
-            <div v-for="p in SOCIALS" :key="p.id" class="link-item">
-              <label class="sub">{{ p.label }}</label>
-              <div class="link-row">
-                <div class="link-ico">
-                  <img :src="`/icons/${p.id}.png`" class="admin-platform-img" alt="" />
+            <!-- Basics -->
+            <section class="block">
+              <div class="grid-2">
+                <div class="field"><label class="lbl" for="release-title">Title</label><input id="release-title" aria-required="true" v-model="current.title" class="g-input" /></div>
+                <div class="field"><label class="lbl" for="release-artist">Artist</label><input id="release-artist" aria-required="true" v-model="current.artist" class="g-input" /></div>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label class="lbl" for="release-slug">Page URL</label>
+                  <input id="release-slug" aria-required="true" v-model="current.id" class="g-input" :disabled="isEditing" placeholder="artist-release" autocapitalize="off" spellcheck="false" @input="slugTouched = true" />
                 </div>
-                <input v-model="current[p.column]" class="g-input" placeholder="https://" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" />
-                <a v-if="current[p.column]" class="icon-btn" title="Open link" :href="current[p.column]" target="_blank" rel="noopener" aria-label="Open link"><svg class="ico" aria-hidden="true"><use href="#i-arrow" /></svg></a>
+                <div class="field">
+                  <label class="lbl" for="release-date">Release date</label>
+                  <input id="release-date" v-model="current.release_date" type="date" class="g-input" />
+                </div>
               </div>
-            </div>
-          </section>
+              <p class="hint">{{ dateHint }}</p>
+              <div class="field">
+                <label class="lbl" for="release-isrc">ISRC</label>
+                <input id="release-isrc" v-model="current.isrc" class="g-input" placeholder="FR9W1…" autocapitalize="characters" spellcheck="false" />
+              </div>
+            </section>
 
-          <!-- Stats -->
-          <section v-if="isEditing && (stats[current.id] || platformClicks.length)" class="block">
-            <label class="lbl">Performance</label>
-            <p v-if="stats[current.id]" class="perf">{{ stats[current.id].views }} views · {{ stats[current.id].clicks }} clicks</p>
-            <div v-for="c in platformClicks" :key="c.platform" class="perf-row">
-              <span>{{ clickLabel(c.platform) }}</span><strong>{{ c.clicks }}</strong>
-            </div>
-          </section>
+            <section class="block settings-card tracklist-setting">
+              <label class="setting-row" for="show-tracklist">
+                <span class="setting-copy"><span class="setting-title">Tracklist <span v-if="trackCount" class="setting-count">{{ trackCount }} {{ trackCount === 1 ? 'track' : 'tracks' }}</span></span><span class="hint">One line per track.</span></span>
+                <span class="switch"><input id="show-tracklist" v-model="current.show_tracklist" type="checkbox" aria-controls="tracklist-editor" /><span aria-hidden="true"></span></span>
+              </label>
+              <div v-if="current.show_tracklist" id="tracklist-editor" class="setting-content">
+                <textarea v-model="current.tracklist" class="g-input tracklist-input" rows="5" aria-label="Tracklist" placeholder="Intro&#10;Track title&#10;Outro"></textarea>
+                <p class="hint">Track numbers are added automatically.</p>
+              </div>
+            </section>
+
+            <!-- Stats -->
+            <section v-if="isEditing && (stats[current.id] || platformClicks.length)" class="block">
+              <label class="lbl">Performance</label>
+              <p v-if="stats[current.id]" class="perf">{{ stats[current.id].views }} views · {{ stats[current.id].clicks }} clicks</p>
+              <div v-for="c in platformClicks" :key="c.platform" class="perf-row">
+                <span>{{ clickLabel(c.platform) }}</span><strong>{{ c.clicks }}</strong>
+              </div>
+            </section>
+          </div>
+          <div v-show="editorTab === 'links'" id="editor-panel-links" class="editor-panel" role="tabpanel" aria-labelledby="editor-tab-links">
+            <KeepAlive>
+            <StudioLinks v-if="editorTab === 'links'" :key="editorSession" :links="current" :review-set="reviewSet" :busy="editorBusy" :search-query="searchQuery" :confirm-action="askConfirm"
+              @change="updateLink" @review="reviewLink" @notify="showToast" @copy="copy" />
+            </KeepAlive>
+          </div>
+          <div v-if="editorTab === 'appearance'" id="editor-panel-appearance" class="editor-panel" role="tabpanel" aria-labelledby="editor-tab-appearance">
+            <!-- Artwork -->
+            <section class="block">
+              <label class="lbl">Artwork</label>
+              <div class="art" :class="{ drag: dragging }" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="onDrop">
+                <div class="art-preview">
+                  <img v-if="current.cover_url" :src="current.cover_url" alt="" />
+                  <span v-else>1:1</span>
+                </div>
+                <div class="art-side">
+                  <button type="button" class="g-btn g-btn--sm" :disabled="isUploading" @click="editorDialog.querySelector('#cover-upload').click()"><Upload :size="17" aria-hidden="true" />{{ isUploading ? 'Processing…' : 'Choose image' }}</button>
+                  <button v-if="current.cover_url" type="button" class="g-btn g-btn--sm g-btn--ghost remove-cover" :disabled="editorBusy" @click="current.cover_url = ''; selectedFileName = ''"><Trash2 :size="16" aria-hidden="true" />Remove cover</button>
+                  <input id="cover-upload" type="file" accept="image/*" hidden :disabled="isUploading" @change="handleImageUpload" />
+                  <span class="muted file">{{ selectedFileName || 'Square crop · optimised automatically' }}</span>
+                </div>
+              </div>
+              <input aria-label="Artwork URL" v-model="current.cover_url" class="g-input" placeholder="Or paste an image URL…" inputmode="url" autocapitalize="off" />
+            </section>
+
+            <!-- Look -->
+            <section class="block appearance-settings">
+              <label class="lbl">Theme</label>
+              <div class="seg">
+                <label><input type="radio" v-model="current.theme" value="dark" /><span>Dark</span></label>
+                <label><input type="radio" v-model="current.theme" value="light" /><span>Light</span></label>
+              </div>
+              <label class="setting-row settings-card blur-setting" for="cover-blur">
+                <span class="setting-copy"><span class="setting-title">Blurred background</span><span class="hint">Use the artwork behind your page.</span></span>
+                <span class="switch"><input id="cover-blur" type="checkbox" v-model="current.use_blur" /><span aria-hidden="true"></span></span>
+              </label>
+
+              <div v-if="palette" class="palette" :style="{ background: palette.bg }">
+                <span class="swatch" :style="{ background: palette.accent }"></span>
+                <span :style="{ color: palette.accent }">Page colour {{ palette.bg }}</span>
+              </div>
+              <p v-else-if="paletteError" class="hint warn">
+                {{ paletteError }}
+                <button class="link" :disabled="editorBusy" @click="rehostCover(current.cover_url)">Re-host cover</button>
+              </p>
+            </section>
+
+
+          </div>
         </div>
 
         <footer class="drawer-foot">
-          <button v-if="isEditing" class="icon-btn danger-btn" title="Delete release" aria-label="Delete release" @click="deleteRelease">
-            <svg class="ico" aria-hidden="true"><use href="#i-trash" /></svg>
-          </button>
-          <button v-if="isEditing" class="g-btn g-btn--ghost" @click="duplicateRelease">Duplicate</button>
-          <div class="spacer"></div>
-          <button class="g-btn g-btn--primary" :class="{'g-btn--block': !isEditing}" :disabled="isSaving" @click="saveRelease">
-            {{ isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Publish release' }}
-          </button>
+          <p class="save-status" :class="{ dirty: isDirty }" role="status"><span class="status-dot" aria-hidden="true"></span>{{ isDirty ? 'Unsaved changes' : 'No changes' }}</p>
+          <div class="save-actions">
+            <button class="g-btn g-btn--ghost" :disabled="editorBusy" @click="closeEditor()">Cancel</button>
+            <button class="g-btn g-btn--primary" :disabled="editorBusy || (isEditing && !isDirty)" @click="saveRelease">
+              <LoaderCircle v-if="editorBusy" class="busy-icon" :size="17" aria-hidden="true" /><Check v-else :size="17" aria-hidden="true" />
+              {{ deletingId ? 'Deleting…' : isSaving ? 'Saving…' : isUploading ? 'Uploading…' : isScanning ? 'Scanning…' : isEditing ? 'Save changes' : 'Publish release' }}
+            </button>
+          </div>
         </footer>
       </aside>
     </div>
 
+    </Transition>
+
     <!-- confirm dialog -->
     <div v-if="confirmState" class="overlay overlay-top" @click.self="answerConfirm(false)">
-      <div class="dialog g-card" role="alertdialog" aria-modal="true">
-        <h3 class="title-serif dialog-title">{{ confirmState.title }}</h3>
-        <p class="dialog-msg">{{ confirmState.message }}</p>
+      <div ref="confirmDialog" class="dialog g-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+        <h3 id="confirm-title" class="title-serif dialog-title">{{ confirmState.title }}</h3>
+        <p id="confirm-message" class="dialog-msg">{{ confirmState.message }}</p>
         <div class="dialog-actions">
           <button class="g-btn g-btn--ghost" @click="answerConfirm(false)">Cancel</button>
           <button class="g-btn" :class="confirmState.danger ? 'g-btn--danger' : 'g-btn--primary'" @click="answerConfirm(true)">{{ confirmState.confirmLabel || 'OK' }}</button>
@@ -846,231 +850,211 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.admin { --pad: 24px; --bar-clear: 72px; overflow-x: hidden; width: 100%; box-sizing: border-box; }
+.admin { width: 100%; box-sizing: border-box; }
 .ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
-.muted { color: var(--fg-faint); font-weight: 500; }
-.pulse { animation: g-pulse 1.5s infinite alternate; }
+.muted { color: var(--fg-faint); }
+.loading-state { min-height: 100dvh; display: grid; place-items: center; }
+.logo-large { width: 72px; height: auto; }
+.login-wrap { min-height: 100dvh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; }
+.login-card { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 380px; padding: 36px; text-align: center; }
+.logo-login { width: 52px; margin: 0 auto 8px; }
+.brand-huge { margin: 0; font-size: 3.4rem; }
+.subtitle { margin: 0 0 16px; color: var(--fg-faint); font-size: 0.8rem; }
 
-.loading-state { position: fixed; inset: 0; display: grid; place-items: center; z-index: 100000; background: var(--page-bg); }
-.logo-large { width: 120px; height: auto; }
-
-/* ---------- login ---------- */
-.login-wrap { min-height: 100dvh; display: grid; place-items: center; padding: 20px; box-sizing: border-box; }
-.login-card { width: 100%; max-width: 380px; padding: 44px 34px; text-align: center; display: flex; flex-direction: column; gap: 12px; animation: g-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
-.logo-login { width: 60px; height: auto; margin: 0 auto; }
-.brand-huge { font-size: 3.8rem; line-height: 1; margin: 4px auto 0; color: var(--fg); gap: 3px; }
-.subtitle { margin: 0 0 12px; font-size: 0.7rem; letter-spacing: 3px; text-transform: uppercase; color: var(--fg-faint); }
-
-/* ---------- dashboard ---------- */
-.wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 20px) var(--pad) calc(env(safe-area-inset-bottom, 0px) + 32px); }
-@media (hover: none) { .wrap { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bar-clear)); } }
-.navbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 22px; border-bottom: 1px solid var(--line); margin-bottom: 26px; }
-.nav-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.logo-small { width: 32px; height: auto; }
-.nav-title { font-size: 2rem; margin: 0; color: var(--fg); }
-.nav-tag { font-size: 0.58rem; letter-spacing: 2px; text-transform: uppercase; font-weight: 800; color: var(--fg-faint); }
-.nav-actions { display: flex; gap: 8px; }
-
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 28px; }
-.tile { display: flex; flex-direction: column; gap: 2px; padding: 16px 18px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); }
-.tile-n { font-family: "Instrument Serif", serif; font-size: 2.2rem; line-height: 1; color: var(--fg); }
-.tile-l { font-size: 0.6rem; letter-spacing: 2px; text-transform: uppercase; font-weight: 800; color: var(--fg-faint); }
-.tile-s { margin-top: 4px; font-size: 0.68rem; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 26px; }
-.search { order: 1; flex: 0 1 300px; min-width: 0; }
-.chips { order: 2; }
-.new-btn { order: 3; margin-left: auto; }
-.chips { display: flex; gap: 6px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 100px; border: 1px solid var(--line); background: transparent; color: var(--fg-dim); font-family: var(--font-ui); font-size: 0.62rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; transition: all 0.2s; }
-.chip.active { background: var(--primary-bg); color: var(--primary-fg); border-color: transparent; }
-.chip-n { opacity: 0.6; }
-.chip-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
-.chip-dot.upcoming { background: var(--warn); }
+/* Library */
+.wrap { max-width: 1180px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 24px) 32px calc(env(safe-area-inset-bottom, 0px) + 48px); box-sizing: border-box; }
+.navbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.nav-brand, .nav-actions { display: flex; align-items: center; gap: 12px; }
+.nav-brand { min-width: 0; }
+.logo-small { width: 30px; height: 30px; object-fit: contain; }
+.nav-title { font-size: 1.8rem; color: var(--fg); }
+.nav-tag { padding-left: 14px; border-left: 1px solid var(--line); font-size: 0.76rem; color: var(--fg-faint); }
+.nav-actions { gap: 8px; }
+.nav-icon { border-color: transparent; }
+.busy-icon { animation: g-spin 800ms linear infinite; }
+.library-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 36px 0 28px; }
+.library-head > div { min-width: 0; }
+.library-title { font-size: 3rem; line-height: 1.05; }
+.library-summary { margin: 10px 0 0; color: var(--fg-faint); font-size: 0.76rem; line-height: 1.5; overflow-wrap: anywhere; }
+.new-btn { flex-shrink: 0; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 28px; }
+.search { max-width: 360px; min-width: 0; }
+.chips { display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 3px; border: 1px solid var(--line); border-radius: 100px; }
+.chip { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 10px 14px; border: 0; border-radius: 100px; background: transparent; color: var(--fg-dim); font: 500 0.75rem var(--font-ui); text-transform: capitalize; cursor: pointer; transition: background 120ms, color 120ms; }
+.chip.active { background: var(--surface-hover); color: var(--fg); }
+.chip-n { color: var(--fg-faint); font-size: 0.7rem; font-variant-numeric: tabular-nums; }
+.chip-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--warn); }
 .chip-dot.live { background: var(--ok); }
-.chip.active .chip-dot { opacity: 0.8; }
-
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 34px 22px; }
-.rel { display: flex; flex-direction: column; cursor: pointer; outline: none; }
-.rel-cover { position: relative; aspect-ratio: 1 / 1; border-radius: 16px; overflow: hidden; background: var(--surface); box-shadow: 0 14px 30px -18px rgba(0, 0, 0, 0.5); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); margin-bottom: 12px; }
-.rel-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.rel-body { min-width: 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); align-items: start; gap: 30px 24px; }
+.rel { position: relative; min-width: 0; cursor: pointer; border-radius: 16px; }
+.rel-cover { position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 16px; background: var(--surface); }
+.rel-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.cover-ph { height: 100%; display: grid; place-items: center; color: var(--fg-faint); font-size: 2rem; }
+.badge { position: absolute; bottom: 12px; left: 12px; max-width: calc(100% - 24px); padding: 6px 9px; box-sizing: border-box; border-radius: 100px; background: rgba(15, 15, 17, 0.85); color: #f2efe9; font-size: 0.6rem; font-weight: 500; letter-spacing: 0.02em; }
+.badge.live { background: #1b633d; }
+.rel-body { padding: 13px 0 0; min-width: 0; }
+.rel-title { margin: 0 0 6px; color: var(--fg); font-size: 1.55rem; line-height: 1.15; overflow-wrap: anywhere; }
+.rel-meta { margin: 0; font-size: 0.74rem; line-height: 1.5; color: var(--fg-dim); }
+.rel-stats { margin: 5px 0 0; color: var(--fg-faint); font-size: 0.68rem; }
 .status-line { display: none; }
-.cover-ph { width: 100%; height: 100%; display: grid; place-items: center; font-size: 2.2rem; color: var(--fg-faint); }
-.rel:focus-visible .rel-cover { outline: 2px solid var(--fg-dim); outline-offset: 3px; }
-.rel:focus-within .rel-actions { opacity: 1; }
-@media (hover: hover) and (pointer: fine) {
-  .rel:hover .rel-cover { transform: translateY(-3px); }
-  .rel:hover .rel-actions { opacity: 1; }
-}
+.rel:hover .card-actions, .rel:focus-within .card-actions { opacity: 1; pointer-events: auto; }
+.card-actions { position: absolute; top: 10px; right: 10px; }
+.rel.is-deleting { opacity: 0.45; pointer-events: none; }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 64px 20px; color: var(--fg-dim); text-align: center; font-size: 0.85rem; }
 
-.badge { position: absolute; top: 10px; left: 10px; padding: 5px 10px; border-radius: 100px; font-size: 0.52rem; font-weight: 800; letter-spacing: 1.2px; background: rgba(0, 0, 0, 0.55); color: #fff; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-.badge.live { background: rgba(26, 127, 69, 0.85); }
+/* Editor workspace */
+.overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; box-sizing: border-box; background: rgba(0, 0, 0, 0.62); }
+.drawer { display: grid; grid-template-columns: 160px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; width: 100%; max-width: 900px; height: min(820px, calc(100dvh - 48px)); border: 1px solid var(--line); border-radius: 24px; background: var(--panel); color: var(--fg); box-shadow: 0 24px 80px rgba(0, 0, 0, 0.2); }
+.drawer-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 92px; padding: 22px 28px; box-sizing: border-box; border-bottom: 1px solid var(--line); }
+.drawer-head > div:first-child { min-width: 0; }
+.drawer-title { font-size: 2.1rem; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-context { margin: 7px 0 0; color: var(--fg-faint); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.icon-btn { display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; flex-shrink: 0; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--fg-dim); cursor: pointer; text-decoration: none; transition: background 120ms, color 120ms; }
+.icon-btn:hover { background: var(--surface-hover); color: var(--fg); }
+.icon-btn:disabled { opacity: 0.4; }
+.editor-tabs { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 20px 12px; border-right: 1px solid var(--line); }
+.editor-tab { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 11px 14px; border: 0; border-radius: 10px; background: transparent; color: var(--fg-dim); text-align: left; font: 500 0.8rem var(--font-ui); cursor: pointer; transition: background 120ms, color 120ms; }
+.editor-tab[aria-selected="true"] { background: var(--surface-hover); color: var(--fg); }
+.tab-count { font-size: 0.68rem; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.drawer-body { grid-column: 2; grid-row: 2; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 28px; }
+.editor-panel { display: flex; flex-direction: column; gap: 24px; }
+.drawer-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 28px; border-top: 1px solid var(--line); }
+.save-status { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--fg-faint); font-size: 0.72rem; }
+.save-status.dirty { color: var(--warn); }
+.status-dot { width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
+.save-actions { display: flex; align-items: center; gap: 8px; }
+.save-actions .g-btn--primary { min-width: 138px; }
 
-.rel-actions { position: absolute; bottom: 12px; right: 12px; z-index: 2; display: flex; gap: 8px; opacity: 0; transition: opacity 0.2s; }
-@media (hover: none) { .rel-actions { opacity: 1; } }
-
-.rel-title { font-size: 1.55rem; line-height: 1.1; color: var(--fg); margin: 0 0 4px; }
-.rel-meta { margin: 0; font-size: 0.66rem; letter-spacing: 1px; text-transform: uppercase; color: var(--fg-dim); }
-.rel-stats { margin: 4px 0 0; font-size: 0.62rem; letter-spacing: 0.5px; color: var(--fg-faint); }
-.empty { text-align: center; padding: 60px 0; color: var(--fg-faint); font-size: 0.8rem; letter-spacing: 1px; }
-
-.icon-btn { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; text-decoration: none; -webkit-tap-highlight-color: transparent; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--fg); transition: background 0.2s, transform 0.2s; flex-shrink: 0; }
-.icon-btn:active { transform: scale(0.92); }
-.icon-btn.disabled { opacity: 0.4; pointer-events: none; }
-@media (hover: hover) and (pointer: fine) { .icon-btn:hover { background: var(--surface-hover); } }
-
-/* absolute positioned glass buttons for hover actions */
-.glass-btn { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: none; cursor: pointer; transition: transform 0.2s, background 0.2s; flex-shrink: 0; text-decoration: none; }
-.glass-btn:hover { background: rgba(0, 0, 0, 0.8); }
-.glass-btn:active { transform: scale(0.92); }
-
-.danger-btn { border-color: transparent; background: color-mix(in srgb, var(--danger, #ef4444) 15%, transparent); color: var(--danger, #ef4444); }
-@media (hover: hover) and (pointer: fine) { .danger-btn:hover { background: var(--danger, #ef4444); color: #fff; } }
-
-.footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line); display: flex; justify-content: center; align-items: center; gap: 10px; color: var(--fg-dim); }
-.footer .fm-logo { font-size: 1.5rem; }
-
-/* ---------- drawer ---------- */
-.overlay { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, 0.45); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-.overlay-top { z-index: 2000; justify-content: center; align-items: center; padding: 20px; }
-.drawer { width: 100%; max-width: 560px; height: 100%; display: flex; flex-direction: column; box-sizing: border-box; background: var(--panel); color: var(--fg); border-left: 1px solid var(--line); border-radius: 28px 0 0 28px; animation: slide-in 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
-@keyframes slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
-.drawer-head { display: flex; justify-content: space-between; align-items: center; padding: calc(env(safe-area-inset-top, 0px) + 22px) 28px 18px; border-bottom: 1px solid var(--line); }
-.drawer-title { font-size: 2.2rem; line-height: 1; color: var(--fg); }
-.dirty { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font-size: 0.62rem; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 800; color: var(--warn); }
-.dirty-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.drawer-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 22px 28px 30px; display: flex; flex-direction: column; gap: 26px; }
-.drawer-foot { display: flex; flex-direction: row; align-items: center; gap: 12px; padding: 16px 28px calc(env(safe-area-inset-bottom, 0px) + 16px); border-top: 1px solid var(--line); background: var(--panel); }
-.drawer-foot .spacer { flex: 1; }
-
-.block { display: flex; flex-direction: column; gap: 12px; }
-.lbl { font-size: 0.62rem; letter-spacing: 2px; text-transform: uppercase; font-weight: 800; color: var(--fg-dim); }
-.sub { display: flex; align-items: center; gap: 6px; font-size: 0.6rem; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 700; color: var(--fg-faint); }
-.field { display: flex; flex-direction: column; min-width: 0; }
-.field > .lbl { margin-bottom: 6px; }
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.row { display: flex; gap: 8px; align-items: center; }
+/* Form rhythm */
+.block, .fill-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.lbl { display: block; color: var(--fg-dim); font-size: 0.75rem; font-weight: 500; }
+.field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.row { display: flex; align-items: center; gap: 8px; }
 .row > .g-input { flex: 1; min-width: 0; }
-.g-input[type="date"] { appearance: none; -webkit-appearance: none; width: 100%; box-sizing: border-box; }
-.g-input[type="date"]::-webkit-date-and-time-value { text-align: left; }
-.hint { margin: 0; font-size: 0.68rem; line-height: 1.5; color: var(--fg-faint); }
+.hint { margin: 0; font-size: 0.7rem; line-height: 1.5; color: var(--fg-faint); }
 .hint.warn { color: var(--warn); }
-.check-row { display: flex; align-items: center; gap: 10px; font-size: 0.74rem; color: var(--fg-dim); cursor: pointer; }
-.check-row input { accent-color: var(--fg); width: 16px; height: 16px; margin: 0; }
-.link { background: none; border: none; padding: 0; margin-left: 6px; font: inherit; font-weight: 800; color: var(--fg); text-decoration: underline; cursor: pointer; }
-
-.fill { padding: 18px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); }
-.report { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
-.report-row { display: flex; align-items: center; gap: 8px; font-size: 0.74rem; }
-.report-row strong { font-weight: 700; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
+.check-row { display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 0.72rem; color: var(--fg-dim); cursor: pointer; }
+.check-row input { width: 18px; height: 18px; margin: 0; accent-color: var(--fg); }
+.fill { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.fill summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 48px; padding: 12px 16px; box-sizing: border-box; list-style: none; font-size: 0.78rem; font-weight: 500; cursor: pointer; }
+.fill summary::-webkit-details-marker { display: none; }
+.fill summary > span { font-size: 1.1rem; color: var(--fg-faint); }
+.fill[open] summary > span { transform: rotate(45deg); }
+.fill-body { padding: 0 16px 16px; gap: 10px; }
+.report { display: flex; flex-direction: column; gap: 8px; }
+.report-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; font-size: 0.72rem; }
+.dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--ok); }
 .dot.fuzzy { background: var(--warn); }
-
-.art { display: flex; gap: 16px; align-items: center; padding: 14px; border-radius: 18px; border: 1px dashed var(--line); transition: background 0.2s, border-color 0.2s; }
+.settings-card { border: 1px solid var(--line); border-radius: 14px; }
+.block.settings-card { gap: 0; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 72px; padding: 16px; box-sizing: border-box; cursor: pointer; }
+.setting-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.setting-title { color: var(--fg); font-size: 0.8rem; font-weight: 500; line-height: 1.4; }
+.setting-count { color: var(--fg-faint); font-size: 0.68rem; font-weight: 400; margin-left: 6px; }
+.setting-content { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 16px; }
+.tracklist-input { min-height: 120px; resize: vertical; line-height: 1.6; }
+.switch { position: relative; display: inline-flex; width: 38px; height: 22px; flex-shrink: 0; }
+.switch input { position: absolute; inset: -11px -5px; width: 48px; height: 44px; opacity: 0; margin: 0; cursor: pointer; }
+.switch > span { width: 100%; height: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 100px; background: var(--surface-hover); pointer-events: none; transition: background 120ms; }
+.switch > span::after { content: ''; display: block; width: 14px; height: 14px; margin: 3px; border-radius: 50%; background: var(--fg-faint); transition: transform 120ms, background 120ms; }
+.switch input:checked + span { background: var(--primary-bg); border-color: transparent; }
+.switch input:checked + span::after { transform: translateX(16px); background: var(--primary-fg); }
+.switch input:focus-visible + span { outline: 2px solid var(--fg); outline-offset: 4px; }
+.art { display: flex; align-items: center; gap: 20px; padding: 18px; border: 1px dashed var(--line); border-radius: 14px; }
 .art.drag { background: var(--surface-hover); border-color: var(--fg-dim); }
-.art-preview { width: 88px; height: 88px; flex-shrink: 0; border-radius: 12px; overflow: hidden; display: grid; place-items: center; background: var(--surface); color: var(--fg-faint); font-size: 0.7rem; }
+.art-preview { display: grid; place-items: center; width: 88px; height: 88px; flex-shrink: 0; overflow: hidden; border-radius: 10px; background: var(--surface); color: var(--fg-faint); font-size: 0.75rem; }
 .art-preview img { width: 100%; height: 100%; object-fit: cover; }
-.art-side { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; min-width: 0; }
-.art-side .busy { opacity: 0.5; pointer-events: none; }
-.file { font-size: 0.68rem; line-height: 1.4; }
-
-.seg { display: flex; padding: 4px; border-radius: 100px; background: var(--surface); border: 1px solid var(--line); }
-.seg label { flex: 1; }
-.seg input { display: none; }
-.seg span { display: flex; justify-content: center; padding: 11px 10px; border-radius: 100px; font-size: 0.64rem; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 800; color: var(--fg-faint); cursor: pointer; transition: all 0.25s; }
+.remove-cover { color: var(--danger); }
+.art-side { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 0; }
+.file { font-size: 0.7rem; line-height: 1.5; overflow-wrap: anywhere; }
+.seg { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 100px; }
+.seg label { position: relative; flex: 1; }
+.seg input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.seg span { display: flex; align-items: center; justify-content: center; min-height: 42px; border-radius: 100px; color: var(--fg-dim); font-size: 0.76rem; font-weight: 500; cursor: pointer; }
 .seg input:checked + span { background: var(--primary-bg); color: var(--primary-fg); }
-
-.palette { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); font-size: 0.72rem; font-weight: 600; }
-.swatch { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
-
-.paste { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-.paste textarea { resize: vertical; min-height: 56px; }
-
-.link-item { display: flex; flex-direction: column; gap: 6px; }
-.link-row { display: flex; align-items: center; gap: 10px; }
-.link-ico { width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center; border-radius: 10px; background: var(--surface); overflow: hidden; }
-.admin-platform-img { width: 22px; height: 22px; object-fit: contain; }
-.link-row .g-input { flex: 1; min-width: 0; }
-.tag { padding: 2px 8px; border-radius: 100px; font-size: 0.52rem; letter-spacing: 1px; font-weight: 800; margin-left: 6px; }
-.tag.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
-
-.perf { margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--fg); }
-.perf-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 0.78rem; color: var(--fg-dim); }
+.seg input:focus-visible + span { outline: 2px solid var(--fg); outline-offset: 2px; }
+.palette { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; font-size: 0.72rem; }
+.swatch { width: 12px; height: 12px; border-radius: 50%; }
+.link { padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-decoration: underline; cursor: pointer; }
+.perf { margin: 0; font-size: 0.78rem; color: var(--fg-dim); }
+.perf-row { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 0.75rem; color: var(--fg-dim); }
 .perf-row strong { color: var(--fg); }
 
-/* ---------- dialog ---------- */
-.dialog { width: 100%; max-width: 380px; padding: 28px; background: var(--panel); }
-.dialog-title { font-size: 2rem; color: var(--fg); margin-bottom: 8px; }
-.dialog-msg { margin: 0 0 22px; font-size: 0.8rem; line-height: 1.5; color: var(--fg-dim); }
-.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+/* Confirmations and restrained motion */
+.overlay-top { z-index: 2000; }
+.dialog { width: 100%; max-width: 400px; padding: 28px; }
+.dialog-title { font-size: 2rem; line-height: 1.1; margin: 0 0 12px; }
+.dialog-msg { margin: 0 0 24px; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.6; }
+.dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.editor-enter-active, .editor-leave-active { transition: opacity 140ms; }
+.editor-enter-active .drawer, .editor-leave-active .drawer { transition: transform 180ms ease-out; }
+.editor-enter-from, .editor-leave-to { opacity: 0; }
+.editor-enter-from .drawer, .editor-leave-to .drawer { transform: translateY(8px); }
+.toast-enter-active, .toast-leave-active { transition: opacity 140ms; }
+.toast-enter-from, .toast-leave-to { opacity: 0; }
 
-.toast-enter-active, .toast-leave-active { transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translate(-50%, 16px); }
-
-/* ---------- tablet ---------- */
-@media (max-width: 768px) {
-  .admin { --pad: 16px; }
-  .nav-tag { display: none; }
-  .nav-title { font-size: 1.7rem; }
-  .grid { grid-template-columns: repeat(2, 1fr); gap: 26px 14px; }
-  .rel-title { font-size: 1.3rem; }
-  .drawer { max-width: 100%; border-radius: 0; border-left: none; }
-  .drawer-head, .drawer-body, .drawer-foot { padding-left: 18px; padding-right: 18px; }
+@media (max-width: 800px) {
+  .wrap { padding-left: 24px; padding-right: 24px; }
+  .drawer { grid-template-columns: 136px minmax(0, 1fr); }
+  .drawer-head { padding: 20px 24px; }
+  .drawer-body { padding: 24px; }
+  .drawer-foot { padding: 16px 24px; }
+  .editor-tabs { padding: 16px 8px; }
+  .toolbar { gap: 16px; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-2 { grid-template-columns: 1fr; }
 }
-
-/* ---------- phone ---------- */
 @media (max-width: 640px) {
-  .navbar { padding-bottom: 16px; margin-bottom: 18px; }
-  .logo-small { width: 28px; }
-
-  .tiles { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 20px; }
-  .tile { padding: 12px 14px; border-radius: 16px; }
-  .tile-n { font-size: 1.8rem; }
-  .tile-l { font-size: 0.54rem; letter-spacing: 1.5px; }
-  .tile-s { display: none; }
-
-  .toolbar { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 18px; }
-  .search { flex: none; order: 0; }
-  .new-btn { order: 0; margin: 0; width: 48px; height: 48px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
-  .new-btn span { display: none; }
-  .new-btn .ico { width: 20px; height: 20px; stroke-width: 2.4; }
-  .chips { order: 0; grid-column: 1 / -1; overflow-x: auto; margin: 0 calc(var(--pad) * -1); padding: 0 var(--pad); scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-  .chips::-webkit-scrollbar { display: none; }
-  .chip { flex-shrink: 0; padding: 11px 16px; }
-
-  .grid { grid-template-columns: 1fr; gap: 10px; }
-  .rel { flex-direction: row; align-items: center; padding: 10px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); }
-  .rel:active { background: var(--surface-hover); }
-  .rel-cover { width: 84px; margin: 0 14px 0 0; border-radius: 14px; flex-shrink: 0; }
-  .rel-body { flex: 1; }
-  
-  .rel-actions { position: relative; bottom: auto; right: auto; flex-direction: column; opacity: 1; gap: 8px; z-index: 2; flex-shrink: 0; margin-left: 14px; }
-  .rel-actions .glass-btn { background: var(--panel); color: var(--fg); border: 1px solid var(--line); backdrop-filter: none; -webkit-backdrop-filter: none; }
-  
+  .wrap { padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 32px); }
+  .navbar { padding-bottom: 18px; gap: 8px; }
+  .nav-brand { gap: 8px; }
+  .nav-title { font-size: 1.55rem; }
+  .nav-tag { display: none; }
+  .logo-small { width: 26px; height: 26px; }
+  .nav-actions .g-btn { padding: 9px 10px; }
+  .library-head { margin: 28px 0 22px; align-items: flex-start; gap: 12px; }
+  .library-title { font-size: 2.5rem; }
+  .library-summary { font-size: 0.7rem; }
+  .new-btn { margin-top: 2px; padding: 10px 15px; }
+  .toolbar { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 20px; }
+  .search { max-width: none; }
+  .chips { align-self: flex-start; max-width: 100%; box-sizing: border-box; }
+  .chip { min-height: 40px; padding: 10px 13px; }
+  .grid { grid-template-columns: 1fr; gap: 8px; }
+  .rel { display: grid; grid-template-columns: 64px minmax(0, 1fr) 36px; gap: 14px; align-items: center; padding: 12px; border: 1px solid var(--line); border-radius: 16px; }
+  .rel-cover { width: 64px; border-radius: 10px; }
+  .rel-body { padding: 0; }
+  .rel-title { margin: 0 0 4px; font-size: 1.35rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .rel-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.7rem; }
+  .rel-stats { font-size: 0.65rem; }
   .badge { display: none; }
-  .rel-title { font-size: 1.45rem; margin: 0 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rel-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.6px; }
-  .status-line { display: block; margin: 5px 0 0; font-size: 0.56rem; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: var(--warn); }
+  .status-line { display: block; margin: 5px 0 0; font-size: 0.6rem; color: var(--warn); }
   .status-line.live { color: var(--ok); }
-  .footer { margin-top: 36px; }
-
-  .icon-btn, .glass-btn { width: 40px; height: 40px; }
-  .drawer-head { padding-top: calc(env(safe-area-inset-top, 0px) + 14px); padding-bottom: 12px; }
+  .card-actions { position: relative; top: auto; right: auto; justify-self: center; align-self: start; }
+  .overlay { padding: 0; }
+  .drawer { display: flex; flex-direction: column; max-width: none; height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
+  .drawer-head { min-height: 80px; padding: calc(env(safe-area-inset-top, 0px) + 16px) 18px 16px; gap: 12px; flex-shrink: 0; }
   .drawer-title { font-size: 1.9rem; }
-  .drawer-body { padding-top: 18px; gap: 22px; padding-bottom: 24px; }
-  .drawer-foot { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); }
-  .fill { padding: 14px; }
+  .editor-head-actions { gap: 4px; }
+  .editor-tabs { flex-direction: row; gap: 4px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+  .editor-tab { flex: 1; justify-content: center; gap: 6px; padding: 10px 8px; font-size: 0.78rem; }
+  .drawer-body { flex: 1; padding: 22px 18px; }
+  .drawer-foot { padding: 12px 18px calc(env(safe-area-inset-bottom, 0px) + 12px); gap: 12px; flex-shrink: 0; }
+  .save-status { font-size: 0.65rem; }
+  .save-actions { gap: 4px; }
+  .save-actions .g-btn { padding: 11px 14px; font-size: 0.75rem; }
+  .save-actions .g-btn--primary { min-width: 0; }
+  .art { gap: 14px; padding: 14px; }
   .art-preview { width: 72px; height: 72px; }
-  .link-row { gap: 8px; }
-  .link-ico { width: 34px; height: 34px; }
-  .dialog { padding: 22px; }
-  .dialog-actions .g-btn { flex: 1; }
+  .overlay-top { padding: 20px; }
+  .dialog { padding: 24px; }
 }
-
-@media (max-width: 640px) and (hover: none) {
-  .drawer-foot { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bar-clear) - 24px); }
-  .toast-wrap, .g-toast { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bar-clear)); }
+@media (max-width: 380px) {
+  .save-status { max-width: 60px; line-height: 1.4; }
+  .library-summary > span { display: none; }
+  .chip { padding-left: 11px; padding-right: 11px; }
+  .setting-count { display: block; margin: 2px 0 0; }
 }
 </style>
